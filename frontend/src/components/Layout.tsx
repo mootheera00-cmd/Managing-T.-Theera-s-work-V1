@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, History, Cog } from 'lucide-react';
+import { LayoutDashboard, History, Cog, Clock } from 'lucide-react';
+
 
 interface Props {
   children: ReactNode;
@@ -43,6 +44,11 @@ export default function Layout({ children }: Props) {
               <History className="w-4 h-4" />
               History
             </NavLink>
+            <NavLink to="/timesheet" className={linkClass}>
+              <Clock className="w-4 h-4" />
+              Time Sheet
+            </NavLink>
+
           </nav>
         </div>
       </header>

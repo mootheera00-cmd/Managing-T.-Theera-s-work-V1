@@ -116,15 +116,15 @@ export default function WorkRequestForm({ project, onUpdate, onStart }: Props) {
           </span>
           {isEditMode ? (
             <>
-              <button onClick={handleSave} className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-gray-900 text-white rounded-xl hover:bg-gray-800">
+              <button onClick={handleSave} className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-gray-900 text-white rounded-xl hover:bg-gray-800 hover:scale-[1.02] active:scale-[0.98] hover:shadow-md transition-all duration-200">
                 <Save className="w-3 h-3" /> Save
               </button>
-              <button onClick={handleCancel} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">
+              <button onClick={handleCancel} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-100 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm transition-all duration-200">
                 <X className="w-3 h-3" /> Cancel
               </button>
             </>
           ) : (
-            <button onClick={() => setIsEditMode(true)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">
+            <button onClick={() => setIsEditMode(true)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-650 border border-gray-200 rounded-xl hover:bg-gray-100 hover:text-gray-900 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm transition-all duration-200">
               <Edit3 className="w-3 h-3" /> Edit
             </button>
           )}
@@ -132,7 +132,7 @@ export default function WorkRequestForm({ project, onUpdate, onStart }: Props) {
             <button
               onClick={handleStart}
               disabled={starting}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-gray-900 text-white rounded-xl hover:bg-gray-700 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-gray-900 text-white rounded-xl hover:bg-gray-800 hover:scale-[1.02] active:scale-[0.98] hover:shadow-md transition-all duration-200 disabled:opacity-50"
             >
               <Play className="w-3 h-3 fill-white" />
               {starting ? 'Starting...' : 'Start Process'}
@@ -142,42 +142,52 @@ export default function WorkRequestForm({ project, onUpdate, onStart }: Props) {
       </div>
 
       <div className="grid grid-cols-2 gap-3 items-start">
-        {/* Left column: input fields */}
-        <div className="bg-white border border-[#E5E7EB] rounded-[10px] p-3 space-y-2.5">
-          <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 pb-1 border-b border-gray-100">
-            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-bold flex-shrink-0">1</span>
-            Request Details
-          </h4>
-          <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Requester</label>
+        {/* Left column */}
+        <div className="space-y-2">
+          {/* Requester */}
+          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
+            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">1</span>
+              Requester
+            </h4>
             <select
               value={form.requester}
               onChange={e => handleChange('requester', e.target.value)}
               disabled={!isEditMode}
-              className={`w-full px-3 py-1.5 border rounded-xl text-sm focus:outline-none ${isEditMode ? 'border-gray-200 focus:ring-2 focus:ring-gray-900 bg-white' : 'border-gray-100 bg-gray-50 text-gray-600 cursor-default'}`}
+              className={`w-48 px-3 py-1.5 border rounded-xl text-xs focus:outline-none disabled:opacity-100 transition-all ${isEditMode ? 'border-slate-400 focus:ring-2 focus:ring-slate-900 bg-white text-slate-855' : `${form.requester ? 'bg-emerald-500 text-white font-bold' : 'border-slate-300 bg-slate-50/70 text-gray-400'} cursor-default`}`}
             >
               <option value="">Select requester...</option>
               {REQUESTERS.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Customer Name</label>
+
+          {/* Customer Name */}
+          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
+            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">2</span>
+              Customer Name
+            </h4>
             <input
               type="text"
               value={form.customer_name}
               onChange={e => handleChange('customer_name', e.target.value)}
               readOnly={!isEditMode}
               placeholder="Customer name"
-              className={`w-full px-3 py-1.5 border rounded-xl text-sm focus:outline-none ${isEditMode ? 'border-gray-200 focus:ring-2 focus:ring-gray-900 bg-white' : 'border-gray-100 bg-gray-50 text-gray-600 cursor-default'}`}
+              className={`w-48 px-3 py-1.5 border rounded-xl text-xs focus:outline-none transition-all ${isEditMode ? 'border-slate-400 focus:ring-2 focus:ring-slate-900 bg-white text-slate-855' : `${form.customer_name ? 'bg-emerald-500 text-white font-bold' : 'border-slate-300 bg-slate-50/70 text-gray-400'} cursor-default`}`}
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Work Type</label>
+
+          {/* Work Type */}
+          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
+            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">3</span>
+              Work Type
+            </h4>
             <select
               value={form.work_type}
               onChange={e => handleSelectChange('work_type', e.target.value)}
               disabled={!isEditMode}
-              className={`w-full px-3 py-1.5 border rounded-xl text-sm focus:outline-none ${isEditMode ? 'border-gray-200 focus:ring-2 focus:ring-gray-900 bg-white' : 'border-gray-100 bg-gray-50 text-gray-600 cursor-default'}`}
+              className={`w-48 px-3 py-1.5 border rounded-xl text-xs focus:outline-none disabled:opacity-100 transition-all ${isEditMode ? 'border-slate-400 focus:ring-2 focus:ring-slate-900 bg-white text-slate-855' : `${form.work_type ? 'bg-emerald-500 text-white font-bold' : 'border-slate-300 bg-slate-50/70 text-gray-400'} cursor-default`}`}
             >
               <option value="">Select work type...</option>
               {WORK_TYPES.map(t => (
@@ -185,67 +195,87 @@ export default function WorkRequestForm({ project, onUpdate, onStart }: Props) {
               ))}
             </select>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Bearing No.</label>
+
+          {/* Bearing No. */}
+          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
+            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">4</span>
+              Bearing No.
+            </h4>
             <input
               type="text"
               value={form.bearing_no}
               onChange={e => handleChange('bearing_no', e.target.value)}
               readOnly={!isEditMode}
               placeholder="Bearing number"
-              className={`w-full px-3 py-1.5 border rounded-xl text-sm focus:outline-none ${isEditMode ? 'border-gray-200 focus:ring-2 focus:ring-gray-900 bg-white' : 'border-gray-100 bg-gray-50 text-gray-600 cursor-default'}`}
+              className={`w-48 px-3 py-1.5 border rounded-xl text-xs focus:outline-none transition-all ${isEditMode ? 'border-slate-400 focus:ring-2 focus:ring-slate-900 bg-white text-slate-855' : `${form.bearing_no ? 'bg-emerald-500 text-white font-bold' : 'border-slate-300 bg-slate-50/70 text-gray-400'} cursor-default`}`}
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Received Date</label>
+        </div>
+
+        {/* Right column */}
+        <div className="space-y-2">
+          {/* Received Date */}
+          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
+            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">5</span>
+              Received Date
+            </h4>
             <input
               type="date"
               value={form.received_date}
               onChange={e => handleSelectChange('received_date', e.target.value)}
               disabled={!isEditMode}
-              className={`w-full px-3 py-1.5 border rounded-xl text-sm focus:outline-none ${isEditMode ? 'border-gray-200 focus:ring-2 focus:ring-gray-900 bg-white' : 'border-gray-100 bg-gray-50 text-gray-600 cursor-default'}`}
+              className={`w-40 px-3 py-1.5 border rounded-xl text-xs focus:outline-none disabled:opacity-100 transition-all ${isEditMode ? 'border-slate-400 focus:ring-2 focus:ring-slate-900 bg-white text-slate-855' : `${form.received_date ? 'bg-emerald-500 text-white font-bold' : 'border-slate-300 bg-slate-50/70 text-gray-400'} cursor-default`}`}
             />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Due Date</label>
+
+          {/* Due Date */}
+          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
+            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">6</span>
+              Due Date
+            </h4>
             <input
               type="date"
               value={form.due_date}
               onChange={e => handleSelectChange('due_date', e.target.value)}
               disabled={!isEditMode}
-              className={`w-full px-3 py-1.5 border rounded-xl text-sm focus:outline-none ${isEditMode ? 'border-gray-200 focus:ring-2 focus:ring-gray-900 bg-white' : 'border-gray-100 bg-gray-50 text-gray-600 cursor-default'}`}
+              className={`w-40 px-3 py-1.5 border rounded-xl text-xs focus:outline-none disabled:opacity-100 transition-all ${isEditMode ? 'border-slate-400 focus:ring-2 focus:ring-slate-900 bg-white text-slate-855' : `${form.due_date ? 'bg-emerald-500 text-white font-bold' : 'border-slate-300 bg-slate-50/70 text-gray-400'} cursor-default`}`}
             />
           </div>
-        </div>
 
-        {/* Right column: notes + attachments */}
-        <div className="space-y-3">
-          <div className="bg-white border border-[#E5E7EB] rounded-[10px] p-3 space-y-2">
-            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 pb-1 border-b border-gray-100">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-bold flex-shrink-0">2</span>
+          {/* Notes */}
+          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
+            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">7</span>
               Notes
             </h4>
-            <textarea
+            <input
+              type="text"
               value={form.notes}
               onChange={e => handleChange('notes', e.target.value)}
               readOnly={!isEditMode}
               placeholder="Additional notes..."
-              rows={7}
-              className={`w-full px-3 py-1.5 border rounded-xl text-sm focus:outline-none resize-none ${isEditMode ? 'border-gray-200 focus:ring-2 focus:ring-gray-900 bg-white' : 'border-gray-100 bg-gray-50 text-gray-600 cursor-default'}`}
+              className={`w-48 px-3 py-1.5 border rounded-xl text-xs focus:outline-none transition-all ${isEditMode ? 'border-slate-400 focus:ring-2 focus:ring-slate-900 bg-white text-slate-855' : `${form.notes ? 'bg-emerald-500 text-white font-bold' : 'border-slate-300 bg-slate-50/70 text-gray-400'} cursor-default`}`}
             />
           </div>
-          <div className="bg-white border border-[#E5E7EB] rounded-[10px] p-3 space-y-1.5">
-            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 pb-1 border-b border-gray-100">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 text-gray-500 text-[10px] font-bold flex-shrink-0">3</span>
+
+          {/* Attachments */}
+          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
+            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">8</span>
               Attachments
             </h4>
-            <FileUpload
-              projectId={project.id}
-              stage="work_request"
-              stepName="general"
-              files={project.files || []}
-              onFilesChange={() => save('requester', form.requester)}
-            />
+            <div className="ml-auto">
+              <FileUpload
+                projectId={project.id}
+                stage="work_request"
+                stepName="general"
+                files={project.files || []}
+                onFilesChange={() => save('requester', form.requester)}
+              />
+            </div>
           </div>
         </div>
       </div>

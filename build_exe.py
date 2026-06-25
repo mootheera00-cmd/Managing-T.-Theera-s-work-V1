@@ -88,7 +88,7 @@ def main():
     print("BUILD COMPLETE!")
     print(f"Executable: {os.path.join(ROOT, 'dist', 'ManagingTheeraWork.exe')}")
     print("Double-click the .exe to start the application.")
-    print("Open http://localhost:5000 in your browser.")
+    print("Open http://localhost:8888 in your browser.")
     print("=" * 60)
 
 if __name__ == "__main__":

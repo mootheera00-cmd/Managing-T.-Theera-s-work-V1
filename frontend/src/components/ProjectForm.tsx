@@ -52,7 +52,7 @@ export default function ProjectForm({ onCreated, onCancel }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 flex flex-col" style={{ maxHeight: '90vh' }}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center gap-3 px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
           <div className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center">

@@ -2,7 +2,8 @@ from fastapi import APIRouter, HTTPException
 from database import get_db
 from models import (
     ProjectCreate, ProjectUpdate, PauseRequest,
-    WorkRequestUpdate, ProcessUpdate, OutputUpdate
+    WorkRequestUpdate, ProcessUpdate, OutputUpdate,
+    ReportNumberCreate, ReportNumberUpdate
 )
 from typing import Optional
 
@@ -35,11 +36,17 @@ def calculate_progress(project_id: int, current_stage: str, db) -> int:
         ).fetchone())
         if not ps:
             return 0
+        # Check report_numbers table for any entries
+        rn_count = db.execute(
+            "SELECT COUNT(*) as cnt FROM report_numbers WHERE project_id=? AND report_number != ''",
+            (project_id,)
+        ).fetchone()["cnt"]
+        has_report_number = rn_count > 0 or bool(ps.get("report_number") and str(ps["report_number"]).strip())
         checks = [
             bool(ps.get("comets_no") and str(ps["comets_no"]).strip()),
             bool(ps.get("email_from") and str(ps["email_from"]).strip()),
             bool(ps.get("order_confirmed")),
-            bool(ps.get("report_number") and str(ps["report_number"]).strip()),
+            has_report_number,
             ps.get("test_status") == "completed",
             ps.get("report_status") == "completed",
             ps.get("check_status") == "completed",
@@ -81,35 +88,26 @@ def check_auto_progression(project_id: int, db):
 
     stage = project["current_stage"]
 
-    if stage == "work_request":
-        wr = dict_from_row(db.execute(
-            "SELECT * FROM work_requests WHERE project_id=?", (project_id,)
-        ).fetchone())
-        if wr:
-            fields = ["requester", "customer_name", "work_type", "bearing_no", "due_date"]
-            all_filled = all(wr.get(f) and str(wr[f]).strip() for f in fields)
-            if all_filled:
-                db.execute("UPDATE work_requests SET is_complete=1 WHERE project_id=?", (project_id,))
-                db.execute(
-                    "UPDATE projects SET current_stage='process', updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                    (project_id,)
-                )
-                stage = "process"
+    # Work Request → Process: NO auto-progression.
+    # The user must explicitly accept the work via POST /{id}/start.
 
     if stage == "process":
         ps = dict_from_row(db.execute(
             "SELECT * FROM process_steps WHERE project_id=?", (project_id,)
         ).fetchone())
         if ps and not ps.get("is_paused"):
+            rn_count = db.execute(
+                "SELECT COUNT(*) as cnt FROM report_numbers WHERE project_id=? AND report_number != ''",
+                (project_id,)
+            ).fetchone()["cnt"]
+            has_report_number = rn_count > 0 or bool(ps.get("report_number") and str(ps["report_number"]).strip())
             checks = [
                 bool(ps.get("comets_no") and str(ps["comets_no"]).strip()),
-                bool(ps.get("email_from") and str(ps["email_from"]).strip()),
                 bool(ps.get("order_confirmed")),
-                bool(ps.get("report_number") and str(ps["report_number"]).strip()),
+                has_report_number,
                 ps.get("test_status") == "completed",
                 ps.get("report_status") == "completed",
                 ps.get("check_status") == "completed",
-                ps.get("issue_status") == "completed",
             ]
             if all(checks):
                 db.execute("UPDATE process_steps SET is_complete=1 WHERE project_id=?", (project_id,))
@@ -170,6 +168,10 @@ def get_full_project(project_id: int, db):
         dict_from_row(r) for r in
         db.execute("SELECT * FROM file_attachments WHERE project_id=? ORDER BY uploaded_at DESC", (project_id,)).fetchall()
     ]
+    project["report_numbers"] = [
+        dict_from_row(r) for r in
+        db.execute("SELECT * FROM report_numbers WHERE project_id=? ORDER BY id ASC", (project_id,)).fetchall()
+    ]
     return project
 
 
@@ -183,7 +185,7 @@ def list_projects(
     date_to: Optional[str] = None,
 ):
     db = get_db()
-    query = "SELECT p.*, wr.requester, wr.customer_name, wr.work_type, wr.bearing_no, wr.due_date FROM projects p LEFT JOIN work_requests wr ON p.id = wr.project_id WHERE 1=1"
+    query = "SELECT p.*, wr.requester, wr.customer_name, wr.work_type, wr.bearing_no, wr.due_date, out.report_revising, out.revision_notes FROM projects p LEFT JOIN work_requests wr ON p.id = wr.project_id LEFT JOIN outputs out ON p.id = out.project_id WHERE 1=1"
     params = []
 
     if year:
@@ -209,6 +211,21 @@ def list_projects(
     query += " ORDER BY p.updated_at DESC"
     rows = db.execute(query, params).fetchall()
     result = [dict_from_row(r) for r in rows]
+
+    # Attach report_numbers to each project
+    if result:
+        project_ids = [p["id"] for p in result]
+        placeholders = ",".join("?" * len(project_ids))
+        rn_rows = db.execute(
+            f"SELECT * FROM report_numbers WHERE project_id IN ({placeholders}) ORDER BY id ASC",
+            project_ids
+        ).fetchall()
+        rn_map: dict[int, list[dict]] = {}
+        for r in rn_rows:
+            rn_map.setdefault(r["project_id"], []).append(dict_from_row(r))
+        for p in result:
+            p["report_numbers"] = rn_map.get(p["id"], [])
+
     db.close()
     return result
 
@@ -253,12 +270,26 @@ def get_summary(
     ).fetchall()
     by_type = {r["work_type"]: r["cnt"] for r in type_q}
 
+    # Count revised reports
+    revised_q = db.execute(
+        "SELECT COUNT(*) as cnt FROM projects p LEFT JOIN outputs out ON p.id = out.project_id" + base_where + " AND out.report_revising = 1", params
+    ).fetchone()["cnt"]
+
+    # Get revised report details
+    revised_details = []
+    for r in db.execute(
+        "SELECT p.id, p.title, out.revision_notes FROM projects p LEFT JOIN outputs out ON p.id = out.project_id" + base_where + " AND out.report_revising = 1 ORDER BY p.updated_at DESC", params
+    ).fetchall():
+        revised_details.append({"id": r["id"], "title": r["title"], "revision_notes": r["revision_notes"] or ''})
+
     db.close()
     return {
         "total": total,
         "by_status": by_status,
         "by_stage": by_stage,
         "by_type": by_type,
+        "revised_count": revised_q,
+        "revised_details": revised_details,
     }
 
 
@@ -317,13 +348,23 @@ def delete_project(project_id: int):
         raise HTTPException(status_code=404, detail="Project not found")
     import os
     files = db.execute("SELECT file_path FROM file_attachments WHERE project_id=?", (project_id,)).fetchall()
+    project_folder = None
     for f in files:
         fp = f["file_path"]
         if os.path.exists(fp):
             os.remove(fp)
+            # Track the parent folder of the first file to clean up later
+            if project_folder is None:
+                project_folder = os.path.dirname(fp)
     db.execute("DELETE FROM projects WHERE id=?", (project_id,))
     db.commit()
     db.close()
+    # Remove the project folder if it's now empty
+    if project_folder and os.path.isdir(project_folder) and project_folder != os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "uploads"):
+        try:
+            os.rmdir(project_folder)
+        except OSError:
+            pass  # Folder not empty — leave it
     return {"message": "Project deleted successfully"}
 
 
@@ -378,6 +419,50 @@ def start_process(project_id: int):
     )
     progress = calculate_progress(project_id, "process", db)
     db.execute("UPDATE projects SET progress_percent=? WHERE id=?", (progress, project_id))
+    db.commit()
+    result = get_full_project(project_id, db)
+    db.close()
+    return result
+
+
+@router.post("/{project_id}/complete-process")
+def complete_process(project_id: int):
+    """Manually mark Process as complete and move to Outputs."""
+    db = get_db()
+    project = dict_from_row(db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone())
+    if not project:
+        db.close()
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project["current_stage"] != "process":
+        db.close()
+        raise HTTPException(status_code=400, detail="Project is not in process stage")
+    db.execute("UPDATE process_steps SET is_complete=1 WHERE project_id=?", (project_id,))
+    db.execute(
+        "UPDATE projects SET current_stage='outputs', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (project_id,)
+    )
+    db.commit()
+    result = get_full_project(project_id, db)
+    db.close()
+    return result
+
+
+@router.post("/{project_id}/complete-outputs")
+def complete_outputs(project_id: int):
+    """Manually mark Outputs as complete and move to Completed."""
+    db = get_db()
+    project = dict_from_row(db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone())
+    if not project:
+        db.close()
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project["current_stage"] != "outputs":
+        db.close()
+        raise HTTPException(status_code=400, detail="Project is not in outputs stage")
+    db.execute("UPDATE outputs SET is_complete=1 WHERE project_id=?", (project_id,))
+    db.execute(
+        "UPDATE projects SET current_stage='completed', status='completed', progress_percent=100, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (project_id,)
+    )
     db.commit()
     result = get_full_project(project_id, db)
     db.close()
@@ -454,3 +539,122 @@ def update_outputs(project_id: int, data: OutputUpdate):
     result = get_full_project(project_id, db)
     db.close()
     return result
+
+
+@router.post("/{project_id}/open-folder")
+def open_folder(project_id: int, rn_id: Optional[int] = None):
+    import os
+    db = get_db()
+    path = ""
+    if rn_id:
+        # Open folder for a specific report number
+        rn = db.execute(
+            "SELECT folder_path FROM report_numbers WHERE id=? AND project_id=?",
+            (rn_id, project_id)
+        ).fetchone()
+        if rn and rn["folder_path"]:
+            path = rn["folder_path"].strip()
+    if not path:
+        # Fall back to process_steps.folder_path
+        ps = db.execute("SELECT folder_path FROM process_steps WHERE project_id=?", (project_id,)).fetchone()
+        if ps and ps["folder_path"]:
+            path = ps["folder_path"].strip()
+    db.close()
+    if not path:
+        raise HTTPException(status_code=400, detail="No folder path configured")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"Folder path does not exist: {path}")
+    try:
+        os.startfile(path)
+        return {"message": "Folder opened successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to open folder: {str(e)}")
+
+
+# ── Report Numbers CRUD ──────────────────────────────────────────────────────
+
+@router.get("/{project_id}/report-numbers")
+def list_report_numbers(project_id: int):
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM report_numbers WHERE project_id=? ORDER BY id ASC", (project_id,)
+    ).fetchall()
+    db.close()
+    return [dict_from_row(r) for r in rows]
+
+
+@router.post("/{project_id}/report-numbers")
+def create_report_number(project_id: int, data: ReportNumberCreate):
+    db = get_db()
+    # Verify project exists
+    project = db.execute("SELECT id FROM projects WHERE id=?", (project_id,)).fetchone()
+    if not project:
+        db.close()
+        raise HTTPException(status_code=404, detail="Project not found")
+    cursor = db.execute(
+        "INSERT INTO report_numbers (project_id, report_number, item_description, folder_path) VALUES (?, ?, ?, ?)",
+        (project_id, data.report_number, data.item_description, data.folder_path)
+    )
+    new_id = cursor.lastrowid
+    # Update the summary field in process_steps
+    all_rns = db.execute(
+        "SELECT report_number FROM report_numbers WHERE project_id=? ORDER BY id ASC", (project_id,)
+    ).fetchall()
+    summary = ", ".join(r["report_number"] for r in all_rns)
+    db.execute("UPDATE process_steps SET report_number=? WHERE project_id=?", (summary, project_id))
+    db.commit()
+    result = dict_from_row(db.execute(
+        "SELECT * FROM report_numbers WHERE id=?", (new_id,)
+    ).fetchone())
+    db.close()
+    return result
+
+
+@router.put("/{project_id}/report-numbers/{rn_id}")
+def update_report_number(project_id: int, rn_id: int, data: ReportNumberUpdate):
+    db = get_db()
+    existing = db.execute(
+        "SELECT * FROM report_numbers WHERE id=? AND project_id=?", (rn_id, project_id)
+    ).fetchone()
+    if not existing:
+        db.close()
+        raise HTTPException(status_code=404, detail="Report number not found")
+    updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    if updates:
+        set_clause = ", ".join(f"{k}=?" for k in updates.keys())
+        vals = list(updates.values())
+        vals.append(rn_id)
+        db.execute(f"UPDATE report_numbers SET {set_clause} WHERE id=?", vals)
+        # Update the summary field in process_steps
+        all_rns = db.execute(
+            "SELECT report_number FROM report_numbers WHERE project_id=? ORDER BY id ASC", (project_id,)
+        ).fetchall()
+        summary = ", ".join(r["report_number"] for r in all_rns)
+        db.execute("UPDATE process_steps SET report_number=? WHERE project_id=?", (summary, project_id))
+        db.commit()
+    result = dict_from_row(db.execute(
+        "SELECT * FROM report_numbers WHERE id=?", (rn_id,)
+    ).fetchone())
+    db.close()
+    return result
+
+
+@router.delete("/{project_id}/report-numbers/{rn_id}")
+def delete_report_number(project_id: int, rn_id: int):
+    db = get_db()
+    existing = db.execute(
+        "SELECT * FROM report_numbers WHERE id=? AND project_id=?", (rn_id, project_id)
+    ).fetchone()
+    if not existing:
+        db.close()
+        raise HTTPException(status_code=404, detail="Report number not found")
+    db.execute("DELETE FROM report_numbers WHERE id=?", (rn_id,))
+    # Update the summary field in process_steps
+    all_rns = db.execute(
+        "SELECT report_number FROM report_numbers WHERE project_id=? ORDER BY id ASC", (project_id,)
+    ).fetchall()
+    summary = ", ".join(r["report_number"] for r in all_rns)
+    db.execute("UPDATE process_steps SET report_number=? WHERE project_id=?", (summary, project_id))
+    db.commit()
+    db.close()
+    return {"message": "Report number deleted successfully"}

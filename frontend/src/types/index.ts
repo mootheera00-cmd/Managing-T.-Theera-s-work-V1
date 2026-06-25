@@ -28,15 +28,17 @@ export interface ProcessStep {
   id: number;
   project_id: number;
   comets_no: string;
+  comets_url: string;
   email_from: string;
   email_attachment_info: string;
   order_confirmed: number;
   report_number: string;
+  folder_path: string;
   work_log_url: string;
   test_status: string;
   report_status: string;
+  store_report_status: string;
   check_status: string;
-  issue_status: string;
   is_paused: number;
   pause_reason: string;
   is_complete: number;
@@ -71,6 +73,7 @@ export interface Project {
   process?: ProcessStep;
   outputs?: Output;
   files?: FileAttachment[];
+  report_numbers?: ReportNumber[];
   // Joined fields from list endpoint
   requester?: string;
   customer_name?: string;
@@ -79,11 +82,28 @@ export interface Project {
   due_date?: string;
 }
 
+export interface ReportNumber {
+  id: number;
+  project_id: number;
+  report_number: string;
+  item_description: string;
+  folder_path: string;
+  created_at: string;
+}
+
+export interface RevisedDetail {
+  id: number;
+  title: string;
+  revision_notes: string;
+}
+
 export interface ProjectSummary {
   total: number;
   by_status: Record<string, number>;
   by_stage: Record<string, number>;
   by_type: Record<string, number>;
+  revised_count: number;
+  revised_details: RevisedDetail[];
 }
 
 export const REQUESTERS = [
@@ -123,3 +143,23 @@ export const STAGE_LABELS: Record<string, string> = {
   outputs: 'Outputs',
   completed: 'Completed',
 };
+
+export interface TimeLogEntry {
+  id: number;
+  project_id: number;
+  task_id: string;
+  task_name: string;
+  entry_date: string;
+  hours: number;
+  slots_json: string;
+  project_title?: string;
+  requester?: string;
+  customer_name?: string;
+  work_type?: string;
+  bearing_no?: string;
+  report_number?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+

@@ -178,63 +178,64 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="space-y-2">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => navigate('/')}
-          className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <div className="flex-1">
-          {editTitle ? (
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={titleInput}
-                onChange={e => setTitleInput(e.target.value)}
-                className="text-xl font-bold border-b-2 border-gray-900 focus:outline-none bg-transparent px-1"
-                autoFocus
-                onKeyDown={e => e.key === 'Enter' && handleTitleSave()}
-              />
-              <button onClick={handleTitleSave} className="p-1 text-green-600 hover:bg-green-50 rounded-xl">
-                <Save className="w-4 h-4" />
-              </button>
-              <button onClick={() => setEditTitle(false)} className="p-1 text-gray-400 hover:bg-gray-100 rounded-xl">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-slate-800">{project.title}</h1>
-              <button
-                onClick={() => { setTitleInput(project.title); setEditTitle(true); }}
-                className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl"
-              >
-                <Edit3 className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-          <p className="text-xs text-gray-400 mt-0.5">
-            Year: {project.year} &middot; Created: {new Date(project.created_at).toLocaleDateString()}
-          </p>
+      {/* Stage indicator & Progress — with title + delete integrated */}
+      <div className="card p-3 space-y-1.5">
+        {/* Top row: back button + title/date (left) + delete (right) */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <button
+              onClick={() => navigate('/')}
+              className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors flex-shrink-0"
+              title="Back to Dashboard"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            {editTitle ? (
+              <div className="flex items-center gap-1 min-w-0">
+                <input
+                  type="text"
+                  value={titleInput}
+                  onChange={e => setTitleInput(e.target.value)}
+                  className="text-base font-bold border-b-2 border-gray-900 focus:outline-none bg-transparent px-1 min-w-0 w-full"
+                  autoFocus
+                  onKeyDown={e => e.key === 'Enter' && handleTitleSave()}
+                />
+                <button onClick={handleTitleSave} className="p-1 text-green-600 hover:bg-green-50 rounded-lg flex-shrink-0">
+                  <Save className="w-3 h-3" />
+                </button>
+                <button onClick={() => setEditTitle(false)} className="p-1 text-gray-400 hover:bg-gray-100 rounded-lg flex-shrink-0">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 min-w-0">
+                <h1 className="text-base font-bold text-slate-800 truncate">{project.title}</h1>
+                <button
+                  onClick={() => { setTitleInput(project.title); setEditTitle(true); }}
+                  className="p-0.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg flex-shrink-0"
+                >
+                  <Edit3 className="w-3 h-3" />
+                </button>
+                <span className="text-[10px] text-gray-400 ml-0.5 hidden sm:inline">
+                  {project.year} &middot; {new Date(project.created_at).toLocaleDateString()}
+                </span>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg flex-shrink-0"
+            title="Delete project"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
-        <button
-          onClick={() => setShowDeleteConfirm(true)}
-          className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl"
-          title="Delete project"
-        >
-          <Trash2 className="w-5 h-5" />
-        </button>
-      </div>
 
-      {/* Stage indicator & Progress */}
-      <div className="card p-4 space-y-3">
-        <div className="flex items-center justify-center">
+        <div className="flex items-center justify-center scale-90 -my-0.5">
           <StageIndicator current={project.current_stage} />
         </div>
         <ProgressBar value={project.progress_percent} />
-        <div className="flex items-center justify-between text-xs text-gray-500">
+        <div className="flex items-center justify-between text-[11px] text-gray-500 -mt-0.5">
           <span>Status: <strong className="capitalize text-gray-700">{project.status}</strong></span>
           <span>Stage: <strong className="text-gray-700">{STAGE_LABELS[project.current_stage]}</strong></span>
         </div>
@@ -297,7 +298,7 @@ export default function ProjectDetailPage() {
             onClick={() => setActiveTab(tab)}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-xl transition-all ${
               activeTab === tab
-                ? 'bg-white text-gray-900 shadow-sm'
+                ? 'bg-gray-900 text-white shadow-sm'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >

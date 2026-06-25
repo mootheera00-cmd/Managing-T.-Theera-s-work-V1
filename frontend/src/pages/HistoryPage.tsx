@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Search, BarChart3, Briefcase, Clock, PauseCircle, CheckCircle2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, BarChart3, Briefcase, Clock, PauseCircle, CheckCircle2, FileWarning, ArrowRight } from 'lucide-react';
 import { getProjects, getSummary } from '../api/client';
 import type { Project, ProjectSummary } from '../types';
 import ProjectCard from '../components/ProjectCard';
 
 export default function HistoryPage() {
+  const navigate = useNavigate();
   const [year, setYear] = useState(new Date().getFullYear());
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -88,7 +90,7 @@ export default function HistoryPage() {
 
       {/* Summary Cards */}
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="card p-4">
             <div className="flex items-center gap-2 text-gray-500 text-xs font-medium mb-1">
               <Briefcase className="w-4 h-4" /> Total Projects
@@ -112,6 +114,12 @@ export default function HistoryPage() {
               <CheckCircle2 className="w-4 h-4" /> Completed
             </div>
             <p className="text-2xl font-bold text-gray-900">{summary.by_status.completed || 0}</p>
+          </div>
+          <div className="card p-4 border border-red-200">
+            <div className="flex items-center gap-2 text-red-500 text-xs font-medium mb-1">
+              <FileWarning className="w-4 h-4" /> Revised
+            </div>
+            <p className="text-2xl font-bold text-red-600">{summary.revised_count || 0}</p>
           </div>
         </div>
       )}
@@ -141,6 +149,35 @@ export default function HistoryPage() {
                   </div>
                 );
               })}
+          </div>
+        </div>
+      )}
+
+      {/* Revised Reports Summary */}
+      {summary && summary.revised_count > 0 && (
+        <div className="card p-4 border border-red-200">
+          <div className="flex items-center gap-2 mb-3">
+            <FileWarning className="w-4 h-4 text-red-500" />
+            <h3 className="text-sm font-bold text-red-700">Reports Being Revised ({summary.revised_count})</h3>
+          </div>
+          <div className="space-y-2">
+            {summary.revised_details.map(detail => (
+              <div
+                key={detail.id}
+                onClick={() => navigate(`/project/${detail.id}`)}
+                className="bg-red-50 border border-red-100 rounded-xl p-3 cursor-pointer hover:bg-red-100 hover:shadow-sm transition-all group"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-slate-800 group-hover:text-red-700">{detail.title}</p>
+                  <ArrowRight className="w-4 h-4 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                </div>
+                {detail.revision_notes && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    <span className="font-medium text-red-600">Reason:</span> {detail.revision_notes}
+                  </p>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}

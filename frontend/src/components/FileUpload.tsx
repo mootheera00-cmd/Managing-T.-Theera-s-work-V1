@@ -30,7 +30,10 @@ export default function FileUpload({ projectId, stage, stepName = '', files, onF
     setUploading(true);
     try {
       for (let i = 0; i < fileList.length; i++) {
-        await uploadFile(projectId, fileList[i], stage, stepName);
+        const result = await uploadFile(projectId, fileList[i], stage, stepName);
+        if (result && result.warning) {
+          alert(result.warning);
+        }
       }
       onFilesChange();
     } catch (e) {
@@ -56,8 +59,7 @@ export default function FileUpload({ projectId, stage, stepName = '', files, onF
     <div className="space-y-2">
       <button
         type="button"
-        className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors px-3 py-1.5"
-        style={{ border: '1px dashed #D1D5DB', borderRadius: 6 }}
+        className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 border border-dashed border-gray-300 rounded-md hover:border-gray-400 transition-colors px-3 py-1.5"
         onClick={() => inputRef.current?.click()}
       >
         <Upload className="w-3 h-3" />
