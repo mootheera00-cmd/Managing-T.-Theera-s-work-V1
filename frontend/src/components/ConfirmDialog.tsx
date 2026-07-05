@@ -1,9 +1,11 @@
-import { X, AlertTriangle } from 'lucide-react';
+import { X, AlertTriangle, ArrowLeft, ArrowRight } from 'lucide-react';
 
 interface Props {
   title: string;
   message: string;
   confirmLabel?: string;
+  variant?: 'danger' | 'warning';
+  iconDirection?: 'left' | 'right';
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -12,9 +14,13 @@ export default function ConfirmDialog({
   title,
   message,
   confirmLabel = 'Delete',
+  variant = 'danger',
+  iconDirection = 'left',
   onConfirm,
   onCancel,
 }: Props) {
+  const isWarning = variant === 'warning';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onCancel} />
@@ -27,8 +33,18 @@ export default function ConfirmDialog({
         </button>
 
         <div className="flex items-start gap-4">
-          <div className="flex-shrink-0 w-12 h-12 bg-red-50 rounded-full flex items-center justify-center">
-            <AlertTriangle className="w-6 h-6 text-red-500" />
+          <div className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center ${
+            isWarning ? 'bg-amber-50' : 'bg-red-50'
+          }`}>
+            {isWarning ? (
+              iconDirection === 'right' ? (
+                <ArrowRight className="w-6 h-6 text-amber-500" />
+              ) : (
+                <ArrowLeft className="w-6 h-6 text-amber-500" />
+              )
+            ) : (
+              <AlertTriangle className="w-6 h-6 text-red-500" />
+            )}
           </div>
           <div>
             <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
@@ -45,7 +61,11 @@ export default function ConfirmDialog({
           </button>
           <button
             onClick={onConfirm}
-            className="px-6 py-2.5 text-sm font-bold text-white bg-red-600 rounded-xl hover:bg-red-700 transition-colors"
+            className={`px-6 py-2.5 text-sm font-bold text-white rounded-xl transition-colors ${
+              isWarning
+                ? 'bg-amber-500 hover:bg-amber-600'
+                : 'bg-red-600 hover:bg-red-700'
+            }`}
             autoFocus
           >
             {confirmLabel}

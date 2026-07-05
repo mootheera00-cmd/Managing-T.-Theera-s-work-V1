@@ -4,6 +4,13 @@ from typing import Optional
 class ProjectCreate(BaseModel):
     year: int
     title: str
+    requester: str = ''
+    customer_name: str = ''
+    work_type: str = ''
+    bearing_no: str = ''
+    received_date: str = ''
+    due_date: str = ''
+    notes: str = ''
 
 class ProjectUpdate(BaseModel):
     year: Optional[int] = None
@@ -12,6 +19,13 @@ class ProjectUpdate(BaseModel):
     progress_percent: Optional[int] = None
     status: Optional[str] = None
     pause_reason: Optional[str] = None
+    work_type: Optional[str] = None
+    requester: Optional[str] = None
+    customer_name: Optional[str] = None
+    bearing_no: Optional[str] = None
+    received_date: Optional[str] = None
+    due_date: Optional[str] = None
+    notes: Optional[str] = None
 
 class PauseRequest(BaseModel):
     reason: str = ""
@@ -25,6 +39,13 @@ class WorkRequestUpdate(BaseModel):
     due_date: Optional[str] = None
     notes: Optional[str] = None
 
+# Process Step updates
+class ProcessStepUpdate(BaseModel):
+    step_num: int  # 1-5
+    label: Optional[str] = None
+    data: Optional[str] = None
+    complete: Optional[bool] = None
+
 class ProcessUpdate(BaseModel):
     comets_no: Optional[str] = None
     comets_url: Optional[str] = None
@@ -33,14 +54,27 @@ class ProcessUpdate(BaseModel):
     order_confirmed: Optional[bool] = None
     report_number: Optional[str] = None
     folder_path: Optional[str] = None
-    test_status: Optional[str] = None
-    report_status: Optional[str] = None
-    store_report_status: Optional[str] = None
-    check_status: Optional[str] = None
-    is_paused: Optional[bool] = None
-    pause_reason: Optional[str] = None
+    step1_data: Optional[str] = None
+    step1_complete: Optional[bool] = None
+    step2_data: Optional[str] = None
+    step2_complete: Optional[bool] = None
+    step3_data: Optional[str] = None
+    step3_complete: Optional[bool] = None
+    step4_data: Optional[str] = None
+    step4_complete: Optional[bool] = None
+    step5_data: Optional[str] = None
+    step5_complete: Optional[bool] = None
 
 class OutputUpdate(BaseModel):
+    step1_complete: Optional[bool] = None
+    step2_complete: Optional[bool] = None
+    step3_complete: Optional[bool] = None
+    step4_complete: Optional[bool] = None
+    step5_complete: Optional[bool] = None
+    step6_complete: Optional[bool] = None
+    step7_complete: Optional[bool] = None
+    step7_data: Optional[str] = None
+    report_no: Optional[str] = None
     report_approved: Optional[bool] = None
     report_revising: Optional[bool] = None
     revision_notes: Optional[str] = None
@@ -70,46 +104,52 @@ class ReportNumberUpdate(BaseModel):
     item_description: Optional[str] = None
     folder_path: Optional[str] = None
 
-class GanttTaskModel(BaseModel):
-    id: str
+# Gantt Task models
+class GanttTaskCreate(BaseModel):
     name: str
-    category: str
-    start: str
-    end: str
-    progress: int
-    color: str
+    category: str = ''
+    planned_start: str = ''
+    planned_end: str = ''
+    color: str = 'blue'
 
-class GanttInitializePayload(BaseModel):
-    step: str
-    report_number: str
-    tasks: list[GanttTaskModel]
-
-class GanttTaskCreatePayload(BaseModel):
-    id: str
-    step: str
-    report_number: str
-    name: str
-    category: str
-    start: str
-    end: str
-    progress: int
-    color: str
-
-class GanttTaskUpdatePayload(BaseModel):
+class GanttTaskUpdate(BaseModel):
     name: Optional[str] = None
     category: Optional[str] = None
-    start: Optional[str] = None
-    end: Optional[str] = None
+    planned_start: Optional[str] = None
+    planned_end: Optional[str] = None
+    actual_start: Optional[str] = None
+    actual_end: Optional[str] = None
     progress: Optional[int] = None
     color: Optional[str] = None
+    task_order: Optional[int] = None
 
-
+# Time Log models (CSV format)
 class TimeLogCreate(BaseModel):
     project_id: int
-    task_id: str
-    task_name: str
+    task_id: int = 0
+    task_name: str = ''
     entry_date: str
-    hours: float
-    slots_json: str
+    user_name: str = ''
+    group_name: str = 'HUB'
+    sales: str = ''
+    category: str = ''
+    customer: str = ''
+    aptx: str = ''
+    code: str = ''
+    hours: float = 0
+    comment: str = ''
+    mode: str = 'log'
 
-
+class TimeLogUpdate(BaseModel):
+    task_id: Optional[int] = None
+    task_name: Optional[str] = None
+    user_name: Optional[str] = None
+    group_name: Optional[str] = None
+    sales: Optional[str] = None
+    category: Optional[str] = None
+    customer: Optional[str] = None
+    aptx: Optional[str] = None
+    code: Optional[str] = None
+    hours: Optional[float] = None
+    comment: Optional[str] = None
+    mode: Optional[str] = None

@@ -1,204 +1,186 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, BarChart3, Briefcase, Clock, PauseCircle, CheckCircle2, FileWarning, ArrowRight } from 'lucide-react';
+import {
+  Calendar, CheckCircle2, Clock, BarChart3, FolderOpen, Search, ChevronDown
+} from 'lucide-react';
+import { formatDMY } from '../utils/dateUtils';
 import { getProjects, getSummary } from '../api/client';
 import type { Project, ProjectSummary } from '../types';
+import { WORK_TYPES } from '../types';
 import ProjectCard from '../components/ProjectCard';
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
 
 export default function HistoryPage() {
   const navigate = useNavigate();
-  const [year, setYear] = useState(new Date().getFullYear());
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const today = new Date();
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState<number | ''>('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [summary, setSummary] = useState<ProjectSummary | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [filterType, setFilterType] = useState('');
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = useCallback(async () => {
     try {
-      const params: Record<string, unknown> = { year };
-      if (dateFrom) params.date_from = dateFrom;
-      if (dateTo) params.date_to = dateTo;
-      const [proj, sum] = await Promise.all([
-        getProjects(params as any),
-        getSummary(params as any),
+      const params: any = { year };
+      if (month !== '') {
+        const from = `${year}-${String(month).padStart(2, '0')}-01`;
+        const lastDay = new Date(year, month as number, 0).getDate();
+        const to = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        params.date_from = from;
+        params.date_to = to;
+      }
+      const [projs, sum] = await Promise.all([
+        getProjects(params),
+        getSummary({ year })
       ]);
-      setProjects(proj);
+      setProjects(projs);
       setSummary(sum);
     } catch (e) {
-      console.error('Failed to fetch', e);
-    } finally {
-      setLoading(false);
+      console.error(e);
     }
+  }, [year, month]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Completed projects, filtered by type, sorted by completed_at descending
+  const completedProjects = useMemo(() => {
+    let filtered = projects.filter(p => p.current_stage === 'completed');
+    if (filterType) filtered = filtered.filter(p => p.work_type === filterType);
+    return filtered.sort((a, b) => {
+      const dateA = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+      const dateB = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+      return dateB - dateA;
+    });
+  }, [projects, filterType]);
+
+  const workTypeColors: Record<string, string> = {
+    'Evaluation': 'bg-orange-500',
+    'Investigation': 'bg-blue-500',
+    'Investigation for Benchmark': 'bg-cyan-500',
+    'Investigation for Warranty': 'bg-red-500',
+    'Maintenance': 'bg-green-500',
+    'Improvement': 'bg-purple-500',
+    'Others': 'bg-gray-500',
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const years = [];
-  for (let y = 2020; y <= 2099; y++) years.push(y);
-
   return (
-    <div className="space-y-6">
-      <h2 className="text-xl font-bold text-gray-900">History & Summary</h2>
-
-      {/* Filters */}
-      <div className="card p-4">
-        <div className="flex flex-wrap items-end gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Year</label>
-            <select
-              value={year}
-              onChange={e => setYear(Number(e.target.value))}
-              className="px-3 py-2 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-gray-900"
-            >
-              {years.map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={e => setDateFrom(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={e => setDateTo(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-            />
-          </div>
-          <button
-            onClick={fetchData}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-bold rounded-xl hover:bg-gray-800 disabled:opacity-50"
-          >
-            <Search className="w-4 h-4" />
-            Search
-          </button>
+    <div className="p-3 lg:p-4 space-y-3 lg:space-y-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">History & Summary</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <select className="input-base w-40" value={filterType} onChange={e => setFilterType(e.target.value)}>
+            <option value="">All Work Types</option>
+            {WORK_TYPES.map(wt => <option key={wt} value={wt}>{wt}</option>)}
+          </select>
+          <select className="input-base w-28" value={month} onChange={e => setMonth(e.target.value ? Number(e.target.value) : '')}>
+            <option value="">All Year</option>
+            {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+          </select>
+          <select className="input-base w-28" value={year} onChange={e => setYear(Number(e.target.value))}>
+            {Array.from({ length: 5 }, (_, i) => today.getFullYear() - 2 + i).map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
         </div>
       </div>
 
       {/* Summary Cards */}
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div className="card p-4">
-            <div className="flex items-center gap-2 text-gray-500 text-xs font-medium mb-1">
-              <Briefcase className="w-4 h-4" /> Total Projects
-            </div>
-            <p className="text-2xl font-bold text-gray-900">{summary.total}</p>
-          </div>
-          <div className="card p-4">
-            <div className="flex items-center gap-2 text-green-600 text-xs font-medium mb-1">
-              <Clock className="w-4 h-4" /> Active
-            </div>
-            <p className="text-2xl font-bold text-green-600">{summary.by_status.active || 0}</p>
-          </div>
-          <div className="card p-4">
-            <div className="flex items-center gap-2 text-amber-500 text-xs font-medium mb-1">
-              <PauseCircle className="w-4 h-4" /> Paused
-            </div>
-            <p className="text-2xl font-bold text-amber-600">{summary.by_status.paused || 0}</p>
-          </div>
-          <div className="card p-4">
-            <div className="flex items-center gap-2 text-gray-500 text-xs font-medium mb-1">
-              <CheckCircle2 className="w-4 h-4" /> Completed
-            </div>
-            <p className="text-2xl font-bold text-gray-900">{summary.by_status.completed || 0}</p>
-          </div>
-          <div className="card p-4 border border-red-200">
-            <div className="flex items-center gap-2 text-red-500 text-xs font-medium mb-1">
-              <FileWarning className="w-4 h-4" /> Revised
-            </div>
-            <p className="text-2xl font-bold text-red-600">{summary.revised_count || 0}</p>
-          </div>
-        </div>
-      )}
-
-      {/* By Type Breakdown */}
-      {summary && Object.keys(summary.by_type).length > 0 && (
-        <div className="card p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <BarChart3 className="w-4 h-4 text-gray-500" />
-            <h3 className="text-sm font-bold text-gray-700">Projects by Work Type</h3>
-          </div>
-          <div className="space-y-2">
-            {Object.entries(summary.by_type)
-              .sort(([, a], [, b]) => b - a)
-              .map(([type, count]) => {
-                const pct = summary.total > 0 ? (count / summary.total) * 100 : 0;
-                return (
-                  <div key={type} className="flex items-center gap-3">
-                    <span className="text-xs text-gray-600 w-48 truncate">{type}</span>
-                    <div className="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                      <div
-                        className="bg-gray-900 h-2.5 rounded-full transition-all"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <span className="text-xs font-semibold text-gray-500 w-8 text-right">{count}</span>
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      )}
-
-      {/* Revised Reports Summary */}
-      {summary && summary.revised_count > 0 && (
-        <div className="card p-4 border border-red-200">
-          <div className="flex items-center gap-2 mb-3">
-            <FileWarning className="w-4 h-4 text-red-500" />
-            <h3 className="text-sm font-bold text-red-700">Reports Being Revised ({summary.revised_count})</h3>
-          </div>
-          <div className="space-y-2">
-            {summary.revised_details.map(detail => (
-              <div
-                key={detail.id}
-                onClick={() => navigate(`/project/${detail.id}`)}
-                className="bg-red-50 border border-red-100 rounded-xl p-3 cursor-pointer hover:bg-red-100 hover:shadow-sm transition-all group"
-              >
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-slate-800 group-hover:text-red-700">{detail.title}</p>
-                  <ArrowRight className="w-4 h-4 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                </div>
-                {detail.revision_notes && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    <span className="font-medium text-red-600">Reason:</span> {detail.revision_notes}
-                  </p>
-                )}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4">
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-blue-50 rounded-lg"><FolderOpen className="w-5 h-5 text-blue-600" /></div>
+              <div>
+                <p className="text-xs text-gray-500">Total Projects</p>
+                <p className="text-xl font-bold text-gray-900">{summary.total}</p>
               </div>
-            ))}
+            </div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-green-50 rounded-lg"><CheckCircle2 className="w-5 h-5 text-green-600" /></div>
+              <div>
+                <p className="text-xs text-gray-500">Completed</p>
+                <p className="text-xl font-bold text-gray-900">{summary.by_stage?.completed || 0}</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-amber-50 rounded-lg"><Clock className="w-5 h-5 text-amber-600" /></div>
+              <div>
+                <p className="text-xs text-gray-500">Active</p>
+                <p className="text-xl font-bold text-gray-900">{summary.by_status?.active || 0}</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-purple-50 rounded-lg"><BarChart3 className="w-5 h-5 text-purple-600" /></div>
+              <div>
+                <p className="text-xs text-gray-500">Work Types</p>
+                <p className="text-xl font-bold text-gray-900">{Object.keys(summary.by_type || {}).length}</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-red-50 rounded-lg"><Calendar className="w-5 h-5 text-red-600" /></div>
+              <div>
+                <p className="text-xs text-gray-500">Paused</p>
+                <p className="text-xl font-bold text-gray-900">{summary.by_status?.paused || 0}</p>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Projects List */}
-      <div>
-        <h3 className="text-sm font-bold text-gray-700 mb-3">
-          Projects ({projects.length})
-        </h3>
-        {projects.length === 0 ? (
-          <div className="text-center py-12 text-gray-400 text-sm">
-            No projects found for the selected criteria.
+      {/* Work Type Distribution */}
+      {summary?.by_type && Object.keys(summary.by_type).length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Work Type Distribution</h3>
+          <div className="space-y-2">
+            {Object.entries(summary.by_type).map(([type, count]) => {
+              const total = summary.total || 1;
+              const pct = Math.round((count / total) * 100);
+              return (
+                <div key={type} className="flex items-center gap-3">
+                  <span className="text-xs text-gray-600 w-32 sm:w-40 truncate">{type}</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full ${workTypeColors[type] || 'bg-blue-500'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-medium text-gray-500 w-8 text-right">{count}</span>
+                </div>
+              );
+            })}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {projects.map(p => (
-              <ProjectCard key={p.id} project={p} />
-            ))}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Completed Projects as Cards */}
+      {completedProjects.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-12 text-center text-gray-400">
+          <CheckCircle2 className="w-16 h-16 mx-auto mb-4 opacity-30" />
+          <p className="text-lg font-medium">No completed projects for this period</p>
+          <p className="text-sm mt-1">Projects will appear here once completed</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {completedProjects.map(project => (
+            <ProjectCard key={project.id} project={project} onUpdate={fetchData} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

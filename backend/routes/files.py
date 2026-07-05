@@ -1,10 +1,21 @@
 import re
+import subprocess
+import json
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 from database import get_db
 import os
 import uuid
 import mimetypes
+
+
+class FolderAction(BaseModel):
+    folder_path: str
+    target_folder: str = ""
+
+
+router = APIRouter(prefix="/api/files", tags=["files"])
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -30,13 +41,12 @@ def sanitize_folder_name(name: str) -> str:
 def get_project_folder_path(project_id: int, db) -> str:
     """
     Get (or create) the project folder path under uploads/.
-    Folder name format: YYYY-MM-DD_SanitizedProjectTitle
-    Uses submission_date from outputs table, falls back to project created_at.
+    Folder name format: YYYY-MM-DD_WorkType_Title
+    Uses received_date from project, work_type, and title.
     """
     project = dict_from_row(db.execute(
-        """SELECT p.title, o.submission_date, p.created_at
+        """SELECT p.title, p.work_type, p.received_date, p.created_at
            FROM projects p
-           LEFT JOIN outputs o ON o.project_id = p.id
            WHERE p.id = ?""",
         (project_id,)
     ).fetchone())
@@ -44,15 +54,16 @@ def get_project_folder_path(project_id: int, db) -> str:
     if not project:
         return UPLOAD_DIR
 
-    # Use submission_date if available, otherwise use created_at date part
-    date_str = (project.get("submission_date") or "")[:10]
+    # Use received_date if available, otherwise use created_at date part
+    date_str = (project.get("received_date") or "")[:10]
     if not date_str:
         date_str = (project.get("created_at") or "")[:10]
     if not date_str:
         date_str = "0000-00-00"
 
-    title = project.get("title", "unnamed")
-    folder_name = f"{date_str}_{sanitize_folder_name(title)}"
+    work_type = sanitize_folder_name(project.get("work_type", "General"))
+    title = sanitize_folder_name(project.get("title", "unnamed"))
+    folder_name = f"{date_str}_{work_type}_{title}"
     folder_path = os.path.join(UPLOAD_DIR, folder_name)
     os.makedirs(folder_path, exist_ok=True)
     return folder_path
@@ -92,7 +103,7 @@ async def upload_file(
     if existing:
         proj_title = existing["project_title"]
         proj_id = existing["project_id"]
-        warning_message = f"ไฟล์ชื่อ '{file.filename}' ซ้ำกับไฟล์ในโปรเจค '{proj_title}' (ID: {proj_id})"
+        warning_message = f"File '{file.filename}' already exists in project '{proj_title}' (ID: {proj_id})"
 
         # Generate a new unique name by appending Copy1, Copy2...
         counter = 1
@@ -231,3 +242,113 @@ def list_project_files(project_id: int, stage: str = None):
     result = [dict_from_row(r) for r in rows]
     db.close()
     return result
+
+
+@router.post("/open-folder")
+def open_folder(data: FolderAction):
+    """Open a folder path in Windows Explorer."""
+    folder_path = data.folder_path.strip().strip('"').strip("'")
+    
+    if not folder_path:
+        raise HTTPException(status_code=400, detail="Folder path is empty")
+    
+    # Normalize path
+    folder_path = os.path.normpath(folder_path)
+    
+    if not os.path.isdir(folder_path):
+        # Maybe it's a UNC path that's not currently accessible
+        try:
+            # Try to open anyway — Explorer will show error if invalid
+            subprocess.Popen(["explorer", folder_path])
+            return {"success": True, "message": f"Opened: {folder_path}"}
+        except Exception:
+            raise HTTPException(status_code=404, detail=f"Folder not found: {folder_path}")
+    
+    try:
+        subprocess.Popen(["explorer", folder_path])
+        return {"success": True, "message": f"Opened: {folder_path}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to open folder: {str(e)}")
+
+
+@router.post("/list-folder")
+def list_folder(data: FolderAction):
+    """List files and subdirectories in a given folder path."""
+    folder_path = data.folder_path.strip().strip('"').strip("'")
+    
+    if not folder_path:
+        raise HTTPException(status_code=400, detail="Folder path is empty")
+    
+    folder_path = os.path.normpath(folder_path)
+    
+    if not os.path.isdir(folder_path):
+        raise HTTPException(status_code=404, detail=f"Folder not found: {folder_path}")
+    
+    try:
+        items = []
+        for entry in os.scandir(folder_path):
+            stat_info = entry.stat()
+            items.append({
+                "name": entry.name,
+                "path": entry.path,
+                "is_dir": entry.is_dir(),
+                "size": stat_info.st_size if entry.is_file() else 0,
+                "modified": stat_info.st_mtime,
+            })
+        
+        # Sort: directories first, then by name
+        items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+        
+        return {
+            "success": True,
+            "folder_path": folder_path,
+            "parent_path": os.path.dirname(folder_path),
+            "items": items
+        }
+    except PermissionError:
+        raise HTTPException(status_code=403, detail=f"Permission denied: {folder_path}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list folder: {str(e)}")
+
+
+@router.post("/copy-to-folder")
+def copy_file_to_folder(data: FolderAction):
+    """Copy a file from source path to target folder."""
+    source = data.folder_path.strip().strip('"').strip("'")
+    target_dir = data.target_folder.strip().strip('"').strip("'")
+    
+    if not source or not target_dir:
+        raise HTTPException(status_code=400, detail="Both source file and target folder are required")
+    
+    source = os.path.normpath(source)
+    target_dir = os.path.normpath(target_dir)
+    
+    if not os.path.isfile(source):
+        raise HTTPException(status_code=404, detail=f"Source file not found: {source}")
+    
+    if not os.path.isdir(target_dir):
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to create target folder: {str(e)}")
+    
+    try:
+        import shutil
+        filename = os.path.basename(source)
+        dest_path = os.path.join(target_dir, filename)
+        
+        # Handle name collision
+        base, ext = os.path.splitext(filename)
+        counter = 1
+        while os.path.exists(dest_path):
+            dest_path = os.path.join(target_dir, f"{base}Copy{counter}{ext}")
+            counter += 1
+        
+        shutil.copy2(source, dest_path)
+        return {
+            "success": True,
+            "message": f"Copied to: {dest_path}",
+            "dest_path": dest_path
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to copy file: {str(e)}")
