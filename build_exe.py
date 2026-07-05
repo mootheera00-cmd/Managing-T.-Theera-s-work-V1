@@ -1,95 +1,154 @@
-#!/usr/bin/env python3
 """
-Build script to create a standalone .exe for Managing T. Theera's Work
-Prerequisites:
-  - Python 3.10+
-  - Node.js 18+
-  - pip install pyinstaller
+Build script for creating a standalone .exe for Managing T. Theera's Work.
+
+Usage:
+    python build_exe.py
+
+This will:
+1. Build the React frontend (npm run build)
+2. Bundle everything into a single .exe using PyInstaller
 """
-import subprocess
+
 import os
 import sys
+import subprocess
 import shutil
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-FRONTEND = os.path.join(ROOT, "frontend")
-BACKEND = os.path.join(ROOT, "backend")
-DIST_DIR = os.path.join(FRONTEND, "dist")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+BACKEND_DIR = os.path.join(BASE_DIR, "backend")
 
 def run(cmd, cwd=None):
     print(f"Running: {cmd}")
-    result = subprocess.run(cmd, shell=True, cwd=cwd)
-    if result.returncode != 0:
-        print(f"Command failed with code {result.returncode}")
-        sys.exit(1)
+    subprocess.run(cmd, shell=True, cwd=cwd or BASE_DIR, check=True)
 
 def main():
     print("=" * 60)
-    print("Building Managing T. Theera's Work")
+    print("  Building Managing T. Theera's Work - Standalone .exe")
     print("=" * 60)
 
-    # Step 1: Install frontend dependencies
-    print("\n[1/4] Installing frontend dependencies...")
-    run("npm install", cwd=FRONTEND)
+    # Step 1: Clean old builds
+    print("\n[1/5] Cleaning old builds...")
+    for folder in ["dist", "build", "*.spec"]:
+        path = os.path.join(BASE_DIR, folder)
+        if os.path.exists(path):
+            shutil.rmtree(path, ignore_errors=True)
+    for f in os.listdir(BASE_DIR):
+        if f.endswith(".spec"):
+            os.remove(os.path.join(BASE_DIR, f))
 
     # Step 2: Build frontend
-    print("\n[2/4] Building frontend...")
-    run("npm run build", cwd=FRONTEND)
+    print("\n[2/5] Building frontend...")
+    if not os.path.exists(os.path.join(FRONTEND_DIR, "node_modules")):
+        run("npm install", cwd=FRONTEND_DIR)
+    run("npm run build", cwd=FRONTEND_DIR)
 
-    if not os.path.isdir(DIST_DIR):
-        print("ERROR: Frontend build failed - dist directory not found")
+    frontend_dist = os.path.join(FRONTEND_DIR, "dist")
+    if not os.path.exists(frontend_dist):
+        print("ERROR: Frontend build failed!")
         sys.exit(1)
+    print("Frontend built successfully!")
 
     # Step 3: Install backend dependencies
-    print("\n[3/4] Installing backend dependencies...")
-    req_file = os.path.join(BACKEND, 'requirements.txt')
-    run(f'"{sys.executable}" -m pip install -r "{req_file}"')
-    run(f'"{sys.executable}" -m pip install pyinstaller')
+    print("\n[3/5] Installing backend dependencies...")
+    run(f'"{sys.executable}" -m pip install -r requirements.txt', cwd=BACKEND_DIR)
 
-    # Step 4: Build .exe with PyInstaller
-    print("\n[4/4] Building .exe with PyInstaller...")
+    # Step 4: Create PyInstaller spec and build
+    print("\n[4/5] Creating standalone executable...")
+    
+    # Path to main.py
+    main_py = os.path.join(BACKEND_DIR, "main.py")
+    
+    # Data files to include
+    datas = [
+        (frontend_dist, "frontend/dist"),  # Frontend static files
+    ]
+    
+    # Hidden imports
+    hidden_imports = [
+        "uvicorn",
+        "uvicorn.logging",
+        "uvicorn.loops",
+        "uvicorn.loops.auto",
+        "uvicorn.protocols",
+        "uvicorn.protocols.http",
+        "uvicorn.protocols.http.auto",
+        "uvicorn.protocols.websockets",
+        "uvicorn.protocols.websockets.auto",
+        "fastapi",
+        "pydantic",
+        "multipart",
+        "aiofiles",
+        "sqlite3",
+        "routes",
+        "routes.projects",
+        "routes.files",
+        "routes.eval_process",
+        "routes.gantt",
+        "routes.time_logs",
+        "routes.process",
+        "routes.outputs",
+    ]
+    
+    # Build PyInstaller command
+    cmd = [
+        f'"{sys.executable}"', "-m", "PyInstaller",
+        "--noconfirm",
+        "--onefile",
+        "--windowed",  # No console window (GUI mode)
+        f'--name=Managing_Theera_Work',
+        f'--distpath={os.path.join(BASE_DIR, "dist_exe")}',
+        f'--workpath={os.path.join(BASE_DIR, "build_temp")}',
+        f'--specpath={os.path.join(BASE_DIR, "build_temp")}',
+    ]
+    
+    # Add data files
+    for src, dst in datas:
+        cmd.append(f'--add-data={src}{os.pathsep}{dst}')
+    
+    # Add hidden imports
+    for imp in hidden_imports:
+        cmd.append(f'--hidden-import={imp}')
+    
+    cmd.append(main_py)
+    
+    run(" ".join(cmd))
 
-    # Ensure uploads directory exists
-    uploads_dir = os.path.join(BACKEND, "uploads")
-    os.makedirs(uploads_dir, exist_ok=True)
+    # Step 5: Copy database to output folder
+    print("\n[5/5] Finalizing...")
+    dist_dir = os.path.join(BASE_DIR, "dist_exe")
+    if os.path.exists(dist_dir):
+        # Create a portable start script
+        bat_content = """@echo off
+title Managing T. Theera's Work
+echo ============================================
+echo  Managing T. Theera's Work
+echo ============================================
+echo.
+echo Starting application...
+start "" "%~dp0Managing_Theera_Work.exe"
+echo.
+echo Application started!
+echo The database will be created next to this executable.
+echo.
+pause
+"""
+        with open(os.path.join(dist_dir, "start.bat"), "w", encoding="utf-8") as f:
+            f.write(bat_content)
+        
+        print(f"\n✅ Build complete!")
+        print(f"   Executable: {os.path.join(dist_dir, 'Managing_Theera_Work.exe')}")
+        print(f"   Double-click the .exe or start.bat to run!")
+        print(f"   Database will be created in the same folder.")
 
-    # On Windows the separator in --add-data is semicolon, on Unix it's colon.
-    SEP = os.pathsep  # ';' on Windows, ':' on Unix
+    # Clean up temp build files
+    for folder in ["build_temp"]:
+        path = os.path.join(BASE_DIR, folder)
+        if os.path.exists(path):
+            shutil.rmtree(path, ignore_errors=True)
 
-    pyinstaller_cmd = (
-        f"pyinstaller "
-        f"--name ManagingTheeraWork "
-        f"--onefile "
-        f"--console "
-        f"--add-data \"{DIST_DIR}{SEP}frontend/dist\" "
-        f"--add-data \"{uploads_dir}{SEP}uploads\" "
-        f"--hidden-import uvicorn.logging "
-        f"--hidden-import uvicorn.loops "
-        f"--hidden-import uvicorn.loops.auto "
-        f"--hidden-import uvicorn.protocols "
-        f"--hidden-import uvicorn.protocols.http "
-        f"--hidden-import uvicorn.protocols.http.auto "
-        f"--hidden-import uvicorn.protocols.websockets "
-        f"--hidden-import uvicorn.protocols.websockets.auto "
-        f"--hidden-import uvicorn.lifespan "
-        f"--hidden-import uvicorn.lifespan.on "
-        f"--hidden-import aiosqlite "
-        f"--hidden-import sqlite3 "
-        f"--collect-all uvicorn "
-        f"--collect-all fastapi "
-        f"--collect-all anyio "
-        f"--paths \"{BACKEND}\" "
-        f"\"{os.path.join(BACKEND, 'main.py')}\""
-    )
-    run(pyinstaller_cmd, cwd=ROOT)
+    print("\nDone!")
 
-    print()
-    print("=" * 60)
-    print("BUILD COMPLETE!")
-    print(f"Executable: {os.path.join(ROOT, 'dist', 'ManagingTheeraWork.exe')}")
-    print("Double-click the .exe to start the application.")
-    print("Open http://localhost:8888 in your browser.")
-    print("=" * 60)
 
 if __name__ == "__main__":
     main()

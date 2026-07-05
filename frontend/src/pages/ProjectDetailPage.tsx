@@ -1,337 +1,343 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Trash2, Edit3, Save, X,
-  CheckCircle2, Circle, Loader2
+  ArrowLeft, Edit3, Trash2, ChevronRight, Settings,
+  FileText, ClipboardList, Clock, CheckCircle2, Check,
+  AlertCircle, ExternalLink, Eye, ListChecks
 } from 'lucide-react';
-import { getProject, updateProject, deleteProject } from '../api/client';
+import { getProject, deleteProject, startProcess, updateProject } from '../api/client';
 import type { Project } from '../types';
-import { STAGE_LABELS } from '../types';
-import ProgressBar from '../components/ProgressBar';
-import WorkRequestForm from '../components/WorkRequestForm';
-import ProcessForm from '../components/ProcessForm';
-import OutputForm from '../components/OutputForm';
+import { STAGE_LABELS, WORK_TYPES, PROCESS_STEP_LABELS, OUTPUT_STEP_LABELS } from '../types';
+import FileUpload from '../components/FileUpload';
 import ConfirmDialog from '../components/ConfirmDialog';
-
-const STAGES = ['work_request', 'process', 'outputs', 'completed'] as const;
-
-function StageIndicator({ current }: { current: string }) {
-  const idx = STAGES.indexOf(current as any);
-  return (
-    <div className="flex items-center gap-1">
-      {STAGES.map((s, i) => {
-        const done = i < idx;
-        const active = i === idx;
-        return (
-          <div key={s} className="flex items-center gap-1">
-            {i > 0 && (
-              <div className={`w-8 h-0.5 ${done ? 'bg-gray-900' : 'bg-gray-200'}`} />
-            )}
-            <div className="flex flex-col items-center">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-                done ? 'bg-gray-900 text-white' :
-                active ? 'bg-gray-900 text-white ring-2 ring-gray-300' :
-                'bg-gray-100 text-gray-400'
-              }`}>
-                {done ? (
-                  <CheckCircle2 className="w-4 h-4" />
-                ) : (
-                  <span>{i + 1}</span>
-                )}
-              </div>
-              <span className={`text-[10px] mt-1 whitespace-nowrap ${
-                active ? 'text-gray-900 font-bold' : 'text-gray-400'
-              }`}>
-                {STAGE_LABELS[s]}
-              </span>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+import OutputForm from '../components/OutputForm';
 
 export default function ProjectDetailPage() {
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const projectId = Number(id);
+
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<string>('');
-  const [editTitle, setEditTitle] = useState(false);
-  const [titleInput, setTitleInput] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [error, setError] = useState('');
 
   const fetchProject = useCallback(async () => {
-    if (!id) return;
     try {
-      const data = await getProject(Number(id));
-      setProject(data);
-      if (!activeTab) {
-        setActiveTab(data.current_stage === 'completed' ? 'outputs' : data.current_stage);
-      }
+      const p = await getProject(projectId);
+      setProject(p);
+      setEditTitle(p.title);
     } catch (e) {
-      console.error('Failed to fetch project', e);
+      setError('Failed to load project');
     } finally {
       setLoading(false);
     }
-  }, [id, activeTab]);
+  }, [projectId]);
 
-  useEffect(() => {
-    fetchProject();
-  }, [fetchProject]);
+  useEffect(() => { fetchProject(); }, [fetchProject]);
 
-  const handleUpdate = (updated: Project) => {
-    setProject(updated);
-  };
-
-  const handleTitleSave = async () => {
-    if (!project || !titleInput.trim()) return;
+  const handleStartProcess = async () => {
     try {
-      const updated = await updateProject(project.id, { title: titleInput.trim() });
-      setProject(updated);
-      setEditTitle(false);
-    } catch (e) {
-      console.error('Failed to update title', e);
+      await startProcess(projectId);
+      await fetchProject();
+    } catch (e: any) {
+      setError(e.response?.data?.detail || 'Failed to start process');
     }
   };
 
   const handleDelete = async () => {
-    if (!project) return;
     try {
-      await deleteProject(project.id);
-      navigate('/');
+      await deleteProject(projectId);
+      navigate('/projects');
     } catch (e) {
-      console.error('Failed to delete project', e);
+      setError('Failed to delete project');
     }
-    setShowDeleteConfirm(false);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-      </div>
-    );
-  }
-
-  if (!project) {
-    return (
-      <div className="text-center py-20">
-        <p className="text-slate-500">Project not found.</p>
-        <button onClick={() => navigate('/')} className="mt-4 text-gray-600 hover:underline text-sm">
-          Back to Dashboard
-        </button>
-      </div>
-    );
-  }
-
-  const tabs = ['work_request', 'process', 'outputs'] as const;
-
-  const wr = project.work_request;
-  const wrWtKey = (wr?.work_type || '').toLowerCase();
-  const wrWtBadge = wrWtKey === 'evaluation'
-    ? 'bg-orange-100 text-orange-700'
-    : (wrWtKey === 'investigation' || wrWtKey === 'investigation for benchmark' || wrWtKey === 'investigation for warranty')
-    ? 'bg-blue-100 text-blue-700'
-    : 'bg-gray-100 text-gray-600';
-
-  const wrDueInfo = (() => {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const due = wr?.due_date ? new Date(wr.due_date) : null;
-    if (due) due.setHours(0, 0, 0, 0);
-    const received = wr?.received_date ? new Date(wr.received_date) : null;
-    if (received) received.setHours(0, 0, 0, 0);
-
-    const daysLeft = due ? Math.floor((due.getTime() - today.getTime()) / 86400000) : null;
-    const totalSpan = (received && due) ? Math.floor((due.getTime() - received.getTime()) / 86400000) : null;
-
-    let color = 'text-slate-600';
-    let prefix = '';
-    let badge = '—';
-    let badgeBg = 'bg-slate-100 text-slate-500';
-
-    if (daysLeft !== null) {
-      if (daysLeft < 0) {
-        color = 'text-red-600 font-bold'; prefix = 'Overdue · ';
-        badge = `${Math.abs(daysLeft)}d overdue`; badgeBg = 'bg-red-100 text-red-700';
-      } else if (daysLeft === 0) {
-        color = 'text-red-600 font-bold'; prefix = 'Today · ';
-        badge = 'Due today'; badgeBg = 'bg-red-100 text-red-700';
-      } else if (daysLeft === 1) {
-        color = 'text-orange-600 font-semibold'; prefix = 'Tomorrow · ';
-        badge = '1 day left'; badgeBg = 'bg-orange-100 text-orange-700';
-      } else if (daysLeft <= 7) {
-        color = 'text-amber-600 font-semibold'; prefix = '';
-        badge = `${daysLeft} days left`; badgeBg = 'bg-amber-100 text-amber-700';
-      } else {
-        color = 'text-slate-700'; prefix = '';
-        badge = `${daysLeft} days left`; badgeBg = 'bg-green-100 text-green-700';
-      }
+  const handleSaveTitle = async () => {
+    try {
+      await updateProject(projectId, { title: editTitle });
+      setEditing(false);
+      await fetchProject();
+    } catch (e) {
+      setError('Failed to update title');
     }
+  };
 
-    return { color, prefix, badge, badgeBg, daysLeft, totalSpan };
-  })();
+  if (loading) return <div className="p-8 text-center text-gray-500">Loading...</div>;
+  if (!project) return <div className="p-8 text-center text-red-500">Project not found</div>;
 
-  const fmtWrDate = (d: string) =>
-    new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const canStartProcess = project.current_stage === 'work_request' &&
+    project.requester && project.customer_name && project.work_type &&
+    project.bearing_no && project.due_date;
 
   return (
-    <div className="space-y-2">
-      {/* Stage indicator & Progress — with title + delete integrated */}
-      <div className="card p-3 space-y-1.5">
-        {/* Top row: back button + title/date (left) + delete (right) */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <button
-              onClick={() => navigate('/')}
-              className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors flex-shrink-0"
-              title="Back to Dashboard"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-            {editTitle ? (
-              <div className="flex items-center gap-1 min-w-0">
-                <input
-                  type="text"
-                  value={titleInput}
-                  onChange={e => setTitleInput(e.target.value)}
-                  className="text-base font-bold border-b-2 border-gray-900 focus:outline-none bg-transparent px-1 min-w-0 w-full"
-                  autoFocus
-                  onKeyDown={e => e.key === 'Enter' && handleTitleSave()}
-                />
-                <button onClick={handleTitleSave} className="p-1 text-green-600 hover:bg-green-50 rounded-lg flex-shrink-0">
-                  <Save className="w-3 h-3" />
-                </button>
-                <button onClick={() => setEditTitle(false)} className="p-1 text-gray-400 hover:bg-gray-100 rounded-lg flex-shrink-0">
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1 min-w-0">
-                <h1 className="text-base font-bold text-slate-800 truncate">{project.title}</h1>
-                <button
-                  onClick={() => { setTitleInput(project.title); setEditTitle(true); }}
-                  className="p-0.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg flex-shrink-0"
-                >
-                  <Edit3 className="w-3 h-3" />
-                </button>
-                <span className="text-[10px] text-gray-400 ml-0.5 hidden sm:inline">
-                  {project.year} &middot; {new Date(project.created_at).toLocaleDateString()}
-                </span>
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => setShowDeleteConfirm(true)}
-            className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg flex-shrink-0"
-            title="Delete project"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
+    <div className="p-4 lg:p-6 space-y-4 lg:space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate('/projects')} className="btn-secondary p-2">
+            <ArrowLeft className="w-5 h-5" />
           </button>
+          <div>
+            <div className="flex items-center gap-3">
+              {editing ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    className="input-base text-xl font-bold"
+                    value={editTitle}
+                    onChange={e => setEditTitle(e.target.value)}
+                    autoFocus
+                  />
+                  <button onClick={handleSaveTitle} className="btn-primary text-sm">Save</button>
+                  <button onClick={() => setEditing(false)} className="btn-secondary text-sm">Cancel</button>
+                </div>
+              ) : (
+                <>
+                  <h1 className="text-2xl font-bold text-gray-900">{project.title}</h1>
+                  <button onClick={() => setEditing(true)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-sm text-gray-500">
+                {project.work_type} • {project.customer_name} • {project.bearing_no}
+              </span>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                project.current_stage === 'work_request' ? 'bg-gray-100 text-gray-600' :
+                project.current_stage === 'process' ? 'bg-amber-100 text-amber-700' :
+                project.current_stage === 'outputs' ? 'bg-green-100 text-green-700' :
+                'bg-blue-100 text-blue-700'
+              }`}>
+                {STAGE_LABELS[project.current_stage]}
+              </span>
+            </div>
+          </div>
         </div>
-
-        <div className="flex items-center justify-center scale-90 -my-0.5">
-          <StageIndicator current={project.current_stage} />
-        </div>
-        <ProgressBar value={project.progress_percent} />
-        <div className="flex items-center justify-between text-[11px] text-gray-500 -mt-0.5">
-          <span>Status: <strong className="capitalize text-gray-700">{project.status}</strong></span>
-          <span>Stage: <strong className="text-gray-700">{STAGE_LABELS[project.current_stage]}</strong></span>
+        <div className="flex items-center gap-2">
+          {/* ── Primary action per stage ── */}
+          {project.current_stage === 'process' && project.process && (
+            <button
+              onClick={() => navigate(`/project/${projectId}/process`)}
+              className="btn-primary flex items-center gap-2 shadow-md"
+            >
+              <Settings className="w-4 h-4" /> Open Process <ChevronRight className="w-4 h-4" />
+            </button>
+          )}
+          {project.current_stage === 'outputs' && (
+            <button
+              onClick={() => {
+                const el = document.getElementById('outputs-section');
+                el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              className="btn-primary flex items-center gap-2 shadow-md"
+            >
+              <ListChecks className="w-4 h-4" /> Open Outputs <ChevronRight className="w-4 h-4" />
+            </button>
+          )}
+          {project.current_stage === 'work_request' && canStartProcess && (
+            <button onClick={handleStartProcess} className="btn-primary flex items-center gap-2 shadow-md">
+              Start Process <ChevronRight className="w-4 h-4" />
+            </button>
+          )}
+          {/* ── Secondary: Review Process (for non-process stages that have data) ── */}
+          {project.process && project.current_stage !== 'process' && (
+            <button
+              onClick={() => navigate(`/project/${projectId}/process`)}
+              className="btn-secondary flex items-center gap-1.5 text-xs"
+              title="View process steps history"
+            >
+              <Eye className="w-3.5 h-3.5" /> Review Process
+            </button>
+          )}
+          {/* ── Delete (always visible) ── */}
+          <button onClick={() => setShowDeleteConfirm(true)} className="btn-secondary p-2 text-red-500 hover:bg-red-50" title="Delete project">
+            <Trash2 className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
-      {/* Work Request Info — always visible on every tab */}
-      {wr && (
-        <div className="card px-4 py-3">
-          <div className="flex items-stretch divide-x divide-gray-100">
-            <div className="flex-1 pr-4">
-              <p className="text-[10px] text-slate-400 mb-1">Work Type</p>
-              <span className={`inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full ${wrWtBadge}`}>
-                {wr.work_type || '—'}
-              </span>
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3 text-red-700">
+          <AlertCircle className="w-5 h-5" />
+          <span className="text-sm">{error}</span>
+          <button onClick={() => setError('')} className="ml-auto">×</button>
+        </div>
+      )}
+
+      {/* Progress - Stacked Bar */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+        {(() => {
+          const proc = project.process;
+          const isCompleted = project.current_stage === 'completed';
+          const steps13Done = proc ? [1,2,3].filter(s => proc[`step${s}_complete` as keyof typeof proc]).length : 0;
+          const steps13Width = isCompleted ? 10 : (steps13Done / 3) * 10;
+          const gantt = project.gantt_tasks || [];
+          const ganttDone = gantt.filter(t => t.progress >= 100).length;
+          const step4Width = isCompleted ? 79 : (gantt.length > 0 ? (ganttDone / gantt.length) * 79 : 0);
+          const step5Width = isCompleted ? 1 : (proc?.step5_complete ? 1 : 0);
+          const out = project.outputs;
+          const outDone = out ? [1,2,3,4,5,6].filter(i => out[`step${i}_complete` as keyof typeof out]).length : 0;
+          const outputsWidth = isCompleted ? 10 : (out ? (outDone / 6) * 10 : 0);
+          const calcProgress = Math.round(steps13Width + step4Width + step5Width + outputsWidth);
+          return (<>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-semibold text-gray-700">Progress</span>
+              <span className="text-sm font-bold text-blue-600">{calcProgress}%</span>
             </div>
-            <div className="flex-1 px-4">
-              <p className="text-[10px] text-slate-400 mb-1">Bearing No.</p>
-              <p className="text-sm font-semibold text-slate-700 truncate">{wr.bearing_no || '—'}</p>
+            <div className="w-full bg-gray-100 rounded-full h-2 flex overflow-hidden">
+              <div className="h-full bg-blue-500 transition-all" style={{ width: `${steps13Width}%` }} title={`Steps 1-3: ${steps13Done}/3 (10%)`} />
+              <div className="h-full bg-teal-500 transition-all" style={{ width: `${step4Width}%` }} title={`Step 4: ${ganttDone}/${gantt.length} tasks (79%)`} />
+              <div className="h-full bg-amber-400 transition-all" style={{ width: `${step5Width}%` }} title={`Step 5: ${proc?.step5_complete ? 'Done' : 'Pending'} (1%)`} />
+              <div className="h-full bg-purple-500 transition-all" style={{ width: `${outputsWidth}%` }} title={`Outputs: ${outDone}/6 (10%)`} />
             </div>
-            <div className="flex-1 px-4">
-              <p className="text-[10px] text-slate-400 mb-1">Customer Name</p>
-              <p className="text-sm font-medium text-slate-700 truncate">{wr.customer_name || '—'}</p>
+          </>);
+        })()}
+      </div>
+
+      {/* Project Info Cards */}
+      {project.current_stage === 'work_request' && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-4">Work Request Details</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
+            <div>
+              <label className="text-xs font-medium text-gray-500">Requester</label>
+              <p className="text-sm font-semibold text-gray-800">{project.requester || '-'}</p>
             </div>
-            <div className="flex-1 px-4">
-              <p className="text-[10px] text-slate-400 mb-1">Requester</p>
-              <p className="text-sm font-medium text-slate-700 truncate">{wr.requester || '—'}</p>
+            <div>
+              <label className="text-xs font-medium text-gray-500">Customer</label>
+              <p className="text-sm font-semibold text-gray-800">{project.customer_name || '-'}</p>
             </div>
-            <div className="flex-1 px-4">
-              <p className="text-[10px] text-slate-400 mb-1">Received Date</p>
-              <p className="text-sm font-medium text-slate-700">
-                {wr.received_date ? fmtWrDate(wr.received_date) : '—'}
-              </p>
+            <div>
+              <label className="text-xs font-medium text-gray-500">Work Type</label>
+              <p className="text-sm font-semibold text-gray-800">{project.work_type || '-'}</p>
             </div>
-            <div className="flex-1 px-4">
-              <p className="text-[10px] text-slate-400 mb-1">Due Date</p>
-              <p className={`text-sm font-semibold ${wrDueInfo.color}`}>
-                {wr.due_date ? `${wrDueInfo.prefix}${fmtWrDate(wr.due_date)}` : '—'}
-              </p>
+            <div>
+              <label className="text-xs font-medium text-gray-500">Bearing No.</label>
+              <p className="text-sm font-semibold text-gray-800">{project.bearing_no || '-'}</p>
             </div>
-            <div className="flex-[1.2] pl-4">
-              <p className="text-[10px] text-slate-400 mb-1">Days Remaining</p>
-              <span className={`inline-block text-xs font-bold px-2.5 py-0.5 rounded-full ${wrDueInfo.badgeBg}`}>
-                {wrDueInfo.badge}
-              </span>
-              {wrDueInfo.totalSpan !== null && (
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Total span: {wrDueInfo.totalSpan} days
-                </p>
-              )}
+            <div>
+              <label className="text-xs font-medium text-gray-500">Received Date</label>
+              <p className="text-sm font-semibold text-gray-800">{project.received_date || '-'}</p>
             </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500">Due Date</label>
+              <p className="text-sm font-semibold text-gray-800">{project.due_date || '-'}</p>
+            </div>
+          </div>
+          {project.notes && (
+            <div className="mt-4">
+              <label className="text-xs font-medium text-gray-500">Notes</label>
+              <p className="text-sm text-gray-700 mt-1">{project.notes}</p>
+            </div>
+          )}
+          {!canStartProcess && (
+            <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+              <AlertCircle className="w-4 h-4 inline mr-1" />
+              Fill in all required fields (Requester, Customer, Work Type, Bearing No., Due Date) to enable Start Process.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Process Summary - unified style with Outputs */}
+      {project.process && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          {/* Gradient header (matches Outputs style) */}
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-b border-gray-200 px-5 py-3 flex items-center gap-3">
+            <ClipboardList className="w-5 h-5 text-amber-600" />
+            <h3 className="text-sm font-bold text-gray-800">Process Steps</h3>
+            <span className="text-[10px] text-gray-400 font-normal ml-auto">Steps 1-5 completed</span>
+          </div>
+          <div className="p-5">
+            <div className="space-y-2">
+              {[1, 2, 3, 4, 5].map(stepNum => {
+                const complete = project.process?.[`step${stepNum}_complete` as keyof typeof project.process];
+                const label = PROCESS_STEP_LABELS[stepNum]?.label || `Step ${stepNum}`;
+                const hasData = stepNum === 1 ? project.process?.step1_data :
+                  stepNum === 2 ? project.process?.step2_data :
+                  stepNum === 3 ? project.process?.step3_data :
+                  stepNum === 4 ? project.process?.step4_data :
+                  stepNum === 5 ? project.process?.step5_data : '';
+                const ganttCount = project.gantt_tasks?.length || 0;
+                const ganttDone = project.gantt_tasks?.filter(t => t.progress >= 100).length || 0;
+                return (
+                  <div key={stepNum} className="flex items-center justify-between p-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                        complete ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+                      }`}>
+                        {complete ? <Check className="w-4 h-4" /> : stepNum}
+                      </div>
+                      <div>
+                        <span className={`text-sm ${complete ? 'text-green-700 font-medium' : 'text-gray-600'}`}>
+                          {label}
+                        </span>
+                        {stepNum === 4 && ganttCount > 0 && (
+                          <p className="text-[11px] text-gray-400 mt-0.5">{ganttDone}/{ganttCount} tasks completed</p>
+                        )}
+                        {complete && hasData && (
+                          <p className="text-[11px] text-gray-400 mt-0.5 truncate max-w-[200px]">{hasData}</p>
+                        )}
+                      </div>
+                    </div>
+                    {/* Status badge */}
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                      complete
+                        ? 'bg-green-50 text-green-700 border border-green-200'
+                        : 'bg-gray-50 text-gray-400 border border-gray-200'
+                    }`}>
+                      {complete ? 'Done' : 'Pending'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <button
+              onClick={() => navigate(`/project/${projectId}/process`)}
+              className="mt-3 w-full flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-xl hover:bg-amber-100 transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+              Review all process steps
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 rounded-2xl p-1">
-        {tabs.map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-xl transition-all ${
-              activeTab === tab
-                ? 'bg-gray-900 text-white shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {STAGE_LABELS[tab]}
-            {project.current_stage === tab && (
-              <span className="inline-block w-2 h-2 bg-gray-900 rounded-full" />
-            )}
-          </button>
-        ))}
+      {/* Outputs */}
+      {(project.current_stage === 'outputs' || project.current_stage === 'completed') && (
+        <div id="outputs-section">
+        <OutputForm
+          projectId={projectId}
+          project={project}
+          onUpdate={fetchProject}
+        />
+        </div>
+      )}
+
+      {/* Files */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <h2 className="text-lg font-bold text-gray-900 mb-4">Files & Attachments</h2>
+        <FileUpload
+          projectId={projectId}
+          stage={project.current_stage}
+          files={project.files || []}
+          onFilesChange={fetchProject}
+        />
       </div>
 
-      {/* Tab Content */}
-      <div className="card p-4">
-        {activeTab === 'work_request' && (
-          <WorkRequestForm
-            project={project}
-            onUpdate={handleUpdate}
-            onStart={p => { handleUpdate(p); setActiveTab('process'); }}
-          />
-        )}
-        {activeTab === 'process' && (
-          <ProcessForm project={project} onUpdate={handleUpdate} />
-        )}
-        {activeTab === 'outputs' && (
-          <OutputForm project={project} onUpdate={handleUpdate} />
-        )}
-      </div>
-
-      {/* Delete Confirm */}
+      {/* Delete Confirmation */}
       {showDeleteConfirm && (
         <ConfirmDialog
           title="Delete Project"
-          message={`Are you sure you want to delete "${project.title}"? All data and files will be permanently removed. This action cannot be undone.`}
+          message={`Are you sure you want to delete "${project.title}"? This action cannot be undone.`}
+          variant="danger"
+          confirmLabel="Delete"
           onConfirm={handleDelete}
           onCancel={() => setShowDeleteConfirm(false)}
         />

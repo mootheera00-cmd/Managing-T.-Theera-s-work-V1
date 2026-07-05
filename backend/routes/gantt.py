@@ -1,11 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from database import get_db
-from models import (
-    GanttTaskModel,
-    GanttInitializePayload,
-    GanttTaskCreatePayload,
-    GanttTaskUpdatePayload,
-)
+from models import GanttTaskCreate, GanttTaskUpdate
+from typing import Optional
 
 router = APIRouter(prefix="/api/projects", tags=["gantt"])
 
@@ -13,180 +9,111 @@ router = APIRouter(prefix="/api/projects", tags=["gantt"])
 def dict_from_row(row):
     if row is None:
         return None
-    d = dict(row)
-    # Map start_date to start and end_date to end to match frontend expectations
-    if "start_date" in d:
-        d["start"] = d.pop("start_date")
-    if "end_date" in d:
-        d["end"] = d.pop("end_date")
-    return d
+    return dict(row)
 
 
 @router.get("/{project_id}/gantt-tasks")
-def list_gantt_tasks(project_id: int, step: str, report_number: str = ""):
+def list_gantt_tasks(project_id: int):
     db = get_db()
-    # Check if this combo is initialized
-    init = db.execute(
-        "SELECT 1 FROM gantt_initializations WHERE project_id=? AND step=? AND report_number=?",
-        (project_id, step, report_number),
-    ).fetchone()
-
-    if not init:
-        db.close()
-        return {"initialized": False, "tasks": []}
-
-    rows = db.execute(
-        "SELECT * FROM gantt_tasks WHERE project_id=? AND step=? AND report_number=? ORDER BY created_at ASC",
-        (project_id, step, report_number),
-    ).fetchall()
-    db.close()
-
-    return {"initialized": True, "tasks": [dict_from_row(r) for r in rows]}
-
-
-@router.post("/{project_id}/gantt-tasks/initialize")
-def initialize_gantt_tasks(project_id: int, payload: GanttInitializePayload):
-    db = get_db()
-    
-    # Check if project exists
-    proj = db.execute("SELECT id FROM projects WHERE id=?", (project_id,)).fetchone()
-    if not proj:
-        db.close()
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    # Check if already initialized
-    init = db.execute(
-        "SELECT 1 FROM gantt_initializations WHERE project_id=? AND step=? AND report_number=?",
-        (project_id, payload.step, payload.report_number),
-    ).fetchone()
-
-    if init:
-        # If already initialized, we don't overwrite with default values, just return existing
-        rows = db.execute(
-            "SELECT * FROM gantt_tasks WHERE project_id=? AND step=? AND report_number=? ORDER BY created_at ASC",
-            (project_id, payload.step, payload.report_number),
-        ).fetchall()
-        db.close()
-        return {"initialized": True, "tasks": [dict_from_row(r) for r in rows]}
-
-    # Mark as initialized
-    db.execute(
-        "INSERT INTO gantt_initializations (project_id, step, report_number) VALUES (?, ?, ?)",
-        (project_id, payload.step, payload.report_number),
-    )
-
-    # Insert default tasks
-    for task in payload.tasks:
+    tasks = [
+        dict_from_row(r) for r in
         db.execute(
-            "INSERT INTO gantt_tasks (id, project_id, step, report_number, name, category, start_date, end_date, progress, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                task.id,
-                project_id,
-                payload.step,
-                payload.report_number,
-                task.name,
-                task.category,
-                task.start,
-                task.end,
-                task.progress,
-                task.color,
-            ),
-        )
-
-    db.commit()
-
-    rows = db.execute(
-        "SELECT * FROM gantt_tasks WHERE project_id=? AND step=? AND report_number=? ORDER BY created_at ASC",
-        (project_id, payload.step, payload.report_number),
-    ).fetchall()
+            "SELECT * FROM gantt_tasks WHERE project_id=? ORDER BY task_order ASC",
+            (project_id,)
+        ).fetchall()
+    ]
     db.close()
-
-    return {"initialized": True, "tasks": [dict_from_row(r) for r in rows]}
+    return tasks
 
 
 @router.post("/{project_id}/gantt-tasks")
-def create_gantt_task(project_id: int, payload: GanttTaskCreatePayload):
+def create_gantt_task(project_id: int, data: GanttTaskCreate):
     db = get_db()
     
-    # Check if project exists
-    proj = db.execute("SELECT id FROM projects WHERE id=?", (project_id,)).fetchone()
-    if not proj:
-        db.close()
-        raise HTTPException(status_code=404, detail="Project not found")
-
+    # Get next order
+    max_order = db.execute(
+        "SELECT COALESCE(MAX(task_order), 0) as mx FROM gantt_tasks WHERE project_id=?",
+        (project_id,)
+    ).fetchone()["mx"]
+    
+    cursor = db.execute(
+        """INSERT INTO gantt_tasks 
+           (project_id, task_order, name, category, planned_start, planned_end, color)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (project_id, max_order + 1, data.name, data.category,
+         data.planned_start, data.planned_end, data.color)
+    )
+    task_id = cursor.lastrowid
+    db.commit()
+    
+    # Mark step 4 as having data
     db.execute(
-        "INSERT INTO gantt_tasks (id, project_id, step, report_number, name, category, start_date, end_date, progress, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            payload.id,
-            project_id,
-            payload.step,
-            payload.report_number,
-            payload.name,
-            payload.category,
-            payload.start,
-            payload.end,
-            payload.progress,
-            payload.color,
-        ),
+        "UPDATE process_steps SET step4_complete=1 WHERE project_id=? AND step4_complete=0",
+        (project_id,)
     )
     db.commit()
-
-    row = db.execute(
-        "SELECT * FROM gantt_tasks WHERE id=? AND project_id=?",
-        (payload.id, project_id),
-    ).fetchone()
+    
+    task = dict_from_row(db.execute(
+        "SELECT * FROM gantt_tasks WHERE id=?", (task_id,)
+    ).fetchone())
     db.close()
-
-    return dict_from_row(row)
+    return task
 
 
 @router.put("/{project_id}/gantt-tasks/{task_id}")
-def update_gantt_task(project_id: int, task_id: str, payload: GanttTaskUpdatePayload):
+def update_gantt_task(project_id: int, task_id: int, data: GanttTaskUpdate):
     db = get_db()
-    task = db.execute(
-        "SELECT * FROM gantt_tasks WHERE id=? AND project_id=?",
-        (task_id, project_id),
-    ).fetchone()
-    if not task:
+    existing = dict_from_row(db.execute(
+        "SELECT * FROM gantt_tasks WHERE id=? AND project_id=?", (task_id, project_id)
+    ).fetchone())
+    if not existing:
         db.close()
         raise HTTPException(status_code=404, detail="Gantt task not found")
 
-    task = dict(task)
-    name = payload.name if payload.name is not None else task["name"]
-    category = payload.category if payload.category is not None else task["category"]
-    start_date = payload.start if payload.start is not None else task["start_date"]
-    end_date = payload.end if payload.end is not None else task["end_date"]
-    progress = payload.progress if payload.progress is not None else task["progress"]
-    color = payload.color if payload.color is not None else task["color"]
+    updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    if updates:
+        set_clause = ", ".join(f"{k}=?" for k in updates.keys())
+        vals = list(updates.values())
+        vals.append(task_id)
+        vals.append(project_id)
+        db.execute(f"UPDATE gantt_tasks SET {set_clause}, updated_at=CURRENT_TIMESTAMP WHERE id=? AND project_id=?", vals)
+        db.commit()
 
-    db.execute(
-        "UPDATE gantt_tasks SET name=?, category=?, start_date=?, end_date=?, progress=?, color=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND project_id=?",
-        (name, category, start_date, end_date, progress, color, task_id, project_id),
-    )
-    db.commit()
-
-    row = db.execute(
-        "SELECT * FROM gantt_tasks WHERE id=? AND project_id=?",
-        (task_id, project_id),
-    ).fetchone()
+    task = dict_from_row(db.execute(
+        "SELECT * FROM gantt_tasks WHERE id=?", (task_id,)
+    ).fetchone())
     db.close()
-
-    return dict_from_row(row)
+    return task
 
 
 @router.delete("/{project_id}/gantt-tasks/{task_id}")
-def delete_gantt_task(project_id: int, task_id: str):
+def delete_gantt_task(project_id: int, task_id: int):
     db = get_db()
-    task = db.execute(
-        "SELECT id FROM gantt_tasks WHERE id=? AND project_id=?",
-        (task_id, project_id),
-    ).fetchone()
-    if not task:
-        db.close()
-        raise HTTPException(status_code=404, detail="Gantt task not found")
-
     db.execute("DELETE FROM gantt_tasks WHERE id=? AND project_id=?", (task_id, project_id))
     db.commit()
+    
+    # Reorder remaining tasks
+    remaining = db.execute(
+        "SELECT id FROM gantt_tasks WHERE project_id=? ORDER BY task_order ASC",
+        (project_id,)
+    ).fetchall()
+    for idx, r in enumerate(remaining):
+        db.execute("UPDATE gantt_tasks SET task_order=? WHERE id=?", (idx + 1, r["id"]))
+    db.commit()
     db.close()
+    return {"success": True}
 
-    return {"ok": True}
+
+@router.post("/{project_id}/gantt-tasks/reorder")
+def reorder_gantt_tasks(project_id: int, data: dict):
+    """Reorder tasks. Expects {"order": [id1, id2, id3, ...]}"""
+    order = data.get("order", [])
+    db = get_db()
+    for idx, task_id in enumerate(order):
+        db.execute(
+            "UPDATE gantt_tasks SET task_order=? WHERE id=? AND project_id=?",
+            (idx + 1, task_id, project_id)
+        )
+    db.commit()
+    db.close()
+    return {"success": True}

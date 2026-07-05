@@ -1,427 +1,336 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ExternalLink, CheckCircle2, Circle, Edit3, Save, X, Copy, Clipboard, Mail } from 'lucide-react';
-import { updateOutputs, completeOutputs } from '../api/client';
+import { Check, X, Save, ChevronRight, AlertCircle, CheckCircle2, Edit3, Lock, Unlock, Forward, FileText } from 'lucide-react';
+import { getOutputs, updateOutputs, completeOutputs } from '../api/client';
 import type { Project } from '../types';
-import FileUpload from './FileUpload';
+import { OUTPUT_STEP_LABELS } from '../types';
 
 interface Props {
+  projectId: number;
   project: Project;
-  onUpdate: (p: Project) => void;
+  onUpdate: () => void;
 }
 
-export default function OutputForm({ project, onUpdate }: Props) {
-  const out = project.outputs;
-  const workType = project.work_request?.work_type || '';
-  const showClaim = workType === 'Investigation' || workType === 'Investigation for Warranty';
-  const showEval = workType === 'Evaluation';
-  const cometsUrl = project.process?.comets_url || '';
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [showNotifModal, setShowNotifModal] = useState(false);
-  const [copied, setCopied] = useState(false);
+export default function OutputForm({ projectId, project, onUpdate }: Props) {
+  const [outputs, setOutputs] = useState<any>(null);
+  const [progress, setProgress] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [step7Option, setStep7Option] = useState<'skip' | 'revise' | null>(null);
+  const [step7Data, setStep7Data] = useState('');
 
-  const [form, setForm] = useState({
-    report_approved: !!out?.report_approved,
-    report_revising: !!out?.report_revising,
-    revision_notes: out?.revision_notes || '',
-    work_log_completed: !!out?.work_log_completed,
-    claim_record_completed: !!out?.claim_record_completed,
-    eval_record_completed: !!out?.eval_record_completed,
-    comets_submitted: !!out?.comets_submitted,
-    comets_no: out?.comets_no || '',
-    submission_date: out?.submission_date || '',
-  });
+  const fetchOutputs = useCallback(async () => {
+    try {
+      const resp = await getOutputs(projectId);
+      setOutputs(resp.outputs);
+      setProgress(resp.progress);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [projectId]);
 
+  useEffect(() => { fetchOutputs(); }, [fetchOutputs]);
+
+  // Sync step7Data from outputs when loaded
   useEffect(() => {
-    if (out) {
-      setForm({
-        report_approved: !!out.report_approved,
-        report_revising: !!out.report_revising,
-        revision_notes: out.revision_notes || '',
-        work_log_completed: !!out.work_log_completed,
-        claim_record_completed: !!out.claim_record_completed,
-        eval_record_completed: !!out.eval_record_completed,
-        comets_submitted: !!out.comets_submitted,
-        comets_no: out.comets_no || '',
-        submission_date: out.submission_date || '',
-      });
+    if (outputs?.step7_data) {
+      setStep7Data(outputs.step7_data);
+      setStep7Option('revise');
+    } else if (outputs?.step7_complete) {
+      setStep7Option('skip');
     }
-  }, [out]);
+  }, [outputs]);
 
-  const save = useCallback(async (field: string, value: string | boolean) => {
+  const handleToggleStep = async (stepNum: number) => {
+    if (!outputs) return;
+    setSaving(true);
     try {
-      const updated = await updateOutputs(project.id, { [field]: value });
-      onUpdate(updated);
-    } catch (e) {
-      console.error('Save failed', e);
+      const newVal = outputs[`step${stepNum}_complete`] ? false : true;
+      await updateOutputs(projectId, { [`step${stepNum}_complete`]: newVal });
+      await fetchOutputs();
+      onUpdate();
+    } catch (e: any) {
+      setError(e.response?.data?.detail || 'Failed to update');
+    } finally {
+      setSaving(false);
     }
-  }, [project.id, onUpdate]);
-
-  const handleSave = useCallback(async () => {
-    try {
-      const updated = await updateOutputs(project.id, form as Record<string, unknown>);
-      onUpdate(updated);
-      setIsEditMode(false);
-    } catch (e) {
-      console.error('Save failed', e);
-    }
-  }, [project.id, form, onUpdate]);
-
-  const handleCancel = useCallback(() => {
-    if (out) {
-      setForm({
-        report_approved: !!out.report_approved,
-        report_revising: !!out.report_revising,
-        revision_notes: out.revision_notes || '',
-        work_log_completed: !!out.work_log_completed,
-        claim_record_completed: !!out.claim_record_completed,
-        eval_record_completed: !!out.eval_record_completed,
-        comets_submitted: !!out.comets_submitted,
-        comets_no: out.comets_no || '',
-        submission_date: out.submission_date || '',
-      });
-    }
-    setIsEditMode(false);
-  }, [out]);
-
-  const handleCheckbox = (field: string, value: boolean) => {
-    setForm(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleChange = (field: string, value: string) => {
-    setForm(prev => ({ ...prev, [field]: value }));
+  const handleComplete = async () => {
+    if (!confirm('Complete this project? This will move it to History.')) return;
+    setSaving(true);
+    try {
+      const result = await completeOutputs(projectId);
+      setSuccess(result.message);
+      onUpdate();
+      await fetchOutputs();
+    } catch (e: any) {
+      setError(e.response?.data?.detail || 'Failed to complete');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const checks = [form.report_approved, form.work_log_completed, form.comets_submitted];
-  if (showClaim) checks.push(form.claim_record_completed);
-  if (showEval) checks.push(form.eval_record_completed);
-  const completedCount = checks.filter(Boolean).length;
-  const totalCount = checks.length;
-  const isComplete = completedCount === totalCount;
+  const allRequiredComplete = outputs && [1,2,3,4,5,6].every(i => outputs[`step${i}_complete`]);
+  const displayStepNum = (n: number) => n + 5; // Display steps 6-12 (continuation from Process 1-5)
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {isComplete ? (
-            <CheckCircle2 className="w-5 h-5 text-green-500" />
-          ) : (
-            <Circle className="w-5 h-5 text-gray-300" />
-          )}
-          <h3 className="text-base font-bold text-gray-900">Outputs</h3>
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Outputs</h2>
+          <p className="text-sm text-gray-500">
+            6 required steps (10% of project) • Step 12 optional (report revision)
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">{completedCount}/{totalCount} items completed</span>
-          {isEditMode ? (
-            <>
-              <button onClick={handleSave} className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-gray-900 text-white rounded-xl hover:bg-gray-800 hover:scale-[1.02] active:scale-[0.98] hover:shadow-md transition-all duration-200">
-                <Save className="w-3 h-3" /> Save
-              </button>
-              <button onClick={handleCancel} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-100 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm transition-all duration-200">
-                <X className="w-3 h-3" /> Cancel
-              </button>
-            </>
-          ) : (
-            <button onClick={() => setIsEditMode(true)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-650 border border-gray-200 rounded-xl hover:bg-gray-100 hover:text-gray-900 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm transition-all duration-200">
-              <Edit3 className="w-3 h-3" /> Edit
+        <div className="flex items-center gap-3">
+          <div className="relative group">
+            <button
+              onClick={() => setEditMode(!editMode)}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 shadow-sm ${
+                editMode
+                  ? 'bg-gradient-to-r from-emerald-500 to-green-600 text-white border border-emerald-400 shadow-emerald-200 hover:from-emerald-600 hover:to-green-700'
+                  : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border border-amber-400 shadow-amber-200 hover:from-amber-600 hover:to-orange-600'
+              }`}
+              title={editMode ? 'Disable edit mode' : 'Enable edit mode to make changes'}
+            >
+              {editMode ? (
+                <Unlock className="w-3.5 h-3.5" />
+              ) : (
+                <Lock className="w-3.5 h-3.5" />
+              )}
+              <span>{editMode ? 'Editing Mode' : 'Edit Mode'}</span>
+              <kbd className={`text-[9px] px-1 py-0.5 rounded ${
+                editMode ? 'bg-emerald-600/40 text-emerald-100' : 'bg-amber-600/40 text-amber-100'
+              }`}>
+                {editMode ? 'ON' : 'OFF'}
+              </kbd>
             </button>
-          )}
+            {!editMode && (
+              <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                ⚡ Click to unlock editing
+              </div>
+            )}
+          </div>
+          <span className="text-xs font-medium text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
+            {progress}% / 10%
+          </span>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 items-start">
-        {/* Left column */}
-        <div className="space-y-2">
-          {/* Report Approved */}
-          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
-            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">1</span>
-              Report Approved
-            </h4>
-            <label className={`flex items-center gap-2 flex-shrink-0 ml-auto ${isEditMode ? 'cursor-pointer' : 'cursor-default'}`}>
-              <span className="text-sm text-gray-700 font-semibold">Approved</span>
-              <input
-                type="checkbox"
-                checked={form.report_approved}
-                onChange={e => isEditMode && handleCheckbox('report_approved', e.target.checked)}
-                disabled={!isEditMode}
-                className="w-4.5 h-4.5 rounded border-slate-300 text-slate-955 focus:ring-slate-955 disabled:opacity-60"
-              />
-            </label>
-          </div>
-
-          {/* Work Log Completed */}
-          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
-            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">2</span>
-              Work Log Completed
-            </h4>
-            <div className="flex items-center gap-3 ml-auto">
-              <a
-                href="http://aptc150-096.asia.ad.nsk.com/signin.php"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs font-bold text-slate-655 border border-slate-300 px-2 py-1 rounded-lg hover:bg-slate-100 hover:text-slate-900 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm transition-all duration-200 flex-shrink-0"
-              >
-                <ExternalLink className="w-3 h-3" /> Open Log
-              </a>
-              <label className={`flex items-center gap-2 flex-shrink-0 ${isEditMode ? 'cursor-pointer' : 'cursor-default'}`}>
-                <span className="text-sm text-gray-700 font-semibold">Completed</span>
-                <input
-                  type="checkbox"
-                  checked={form.work_log_completed}
-                  onChange={e => isEditMode && handleCheckbox('work_log_completed', e.target.checked)}
-                  disabled={!isEditMode}
-                  className="w-4.5 h-4.5 rounded border-slate-300 text-slate-950 focus:ring-slate-950 disabled:opacity-60"
-                />
-              </label>
-            </div>
-          </div>
-
-          {/* Claim Record - conditional */}
-          {showClaim && (
-            <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
-              <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">3</span>
-                Claim Record
-              </h4>
-              <div className="flex items-center gap-3 ml-auto">
-                <span className="text-[11px] text-slate-450 hidden sm:inline">Required for Investigation</span>
-                <label className={`flex items-center gap-2 flex-shrink-0 ${isEditMode ? 'cursor-pointer' : 'cursor-default'}`}>
-                  <span className="text-sm font-semibold text-gray-755">Completed</span>
-                  <input
-                    type="checkbox"
-                    checked={form.claim_record_completed}
-                    onChange={e => isEditMode && handleCheckbox('claim_record_completed', e.target.checked)}
-                    disabled={!isEditMode}
-                    className="w-4.5 h-4.5 rounded border-slate-300 text-slate-955 focus:ring-slate-955 disabled:opacity-60"
-                  />
-                </label>
-              </div>
-            </div>
-          )}
-
-          {/* Eval Record - conditional */}
-          {showEval && (
-            <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
-              <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">3</span>
-                Evaluation Record
-              </h4>
-              <div className="flex items-center gap-3 ml-auto">
-                <span className="text-[11px] text-slate-455 hidden sm:inline">Required for Evaluation</span>
-                <label className={`flex items-center gap-2 flex-shrink-0 ${isEditMode ? 'cursor-pointer' : 'cursor-default'}`}>
-                  <span className="text-sm font-semibold text-gray-755">Completed</span>
-                  <input
-                    type="checkbox"
-                    checked={form.eval_record_completed}
-                    onChange={e => isEditMode && handleCheckbox('eval_record_completed', e.target.checked)}
-                    disabled={!isEditMode}
-                    className="w-4.5 h-4.5 rounded border-slate-300 text-slate-955 focus:ring-slate-955 disabled:opacity-60"
-                  />
-                </label>
-              </div>
-            </div>
-          )}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 mb-4 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" /> {error}
+          <button onClick={() => setError('')} className="ml-auto">×</button>
         </div>
-
-        {/* Right column */}
-        <div className="space-y-2">
-          {/* Complete & Finish button */}
-          <div className="bg-white border border-emerald-200 rounded-[10px] p-3 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold flex-shrink-0">★</span>
-                Complete Project
-              </h4>
-              <button
-                onClick={async () => {
-                  if (confirm('Mark this project as Completed? Incomplete items will be skipped.')) {
-                    try {
-                      const updated = await completeOutputs(project.id);
-                      onUpdate(updated);
-                    } catch (e: any) {
-                      alert(e.response?.data?.detail || 'Failed to complete project');
-                    }
-                  }
-                }}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-emerald-600 text-white rounded-xl hover:bg-emerald-500 hover:scale-[1.02] active:scale-[0.98] hover:shadow-md transition-all duration-200"
-              >
-                <CheckCircle2 className="w-4 h-4" /> Complete &amp; Finish
-              </button>
-            </div>
-          </div>
-
-          {/* COMETS Submitted */}
-          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
-            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">4</span>
-              Report Submitted in COMETS
-            </h4>
-            <div className="flex items-center gap-3 ml-auto">
-              {cometsUrl && (
-                <a
-                  href={cometsUrl.startsWith('http') ? cometsUrl : `https://${cometsUrl}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-xs font-bold text-slate-655 border border-slate-300 px-2 py-1 rounded-lg hover:bg-slate-100 hover:text-slate-900 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm transition-all duration-200 flex-shrink-0"
-                >
-                  <ExternalLink className="w-3 h-3" /> COMETS Link
-                </a>
-              )}
-              <button
-                type="button"
-                onClick={() => { setShowNotifModal(true); setCopied(false); }}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-slate-655 border border-slate-300 rounded-xl hover:bg-slate-100 hover:text-slate-909 hover:scale-[1.02] active:scale-[0.98] hover:shadow-sm transition-all duration-200 flex-shrink-0"
-                title="Send notification to requester"
-              >
-                <Mail className="w-3.5 h-3.5" /> Notify
-              </button>
-              <label className={`flex items-center gap-2 flex-shrink-0 ${isEditMode ? 'cursor-pointer' : 'cursor-default'}`}>
-                <span className="text-sm text-gray-700 font-semibold">Submitted</span>
-                <input
-                  type="checkbox"
-                  checked={form.comets_submitted}
-                  onChange={e => isEditMode && handleCheckbox('comets_submitted', e.target.checked)}
-                  disabled={!isEditMode}
-                  className="w-4.5 h-4.5 rounded border-slate-300 text-slate-950 focus:ring-slate-955 disabled:opacity-60"
-                />
-              </label>
-            </div>
-          </div>
-
-          {/* Report Submission Date */}
-          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
-            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">5</span>
-              Report Submission Date
-            </h4>
-            <input
-              type="date"
-              value={form.submission_date}
-              onChange={e => handleChange('submission_date', e.target.value)}
-              disabled={!isEditMode}
-              className={`w-40 px-2.5 py-1 border rounded-xl text-xs focus:outline-none ${isEditMode ? 'border-slate-400 focus:ring-2 focus:ring-slate-900 bg-white text-slate-855' : `${form.submission_date ? 'bg-emerald-500 text-white font-bold' : 'border-slate-300 bg-slate-50/70 text-gray-400'} cursor-default`}`}
-            />
-          </div>
-
-          {/* Attachments */}
-          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
-            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">6</span>
-              Attachments
-            </h4>
-            <div className="ml-auto">
-              <FileUpload
-                projectId={project.id}
-                stage="outputs"
-                stepName="general"
-                files={project.files || []}
-                onFilesChange={() => save('comets_submitted', form.comets_submitted)}
-              />
-            </div>
-          </div>
-
-          {/* Report Revising — moved to last */}
-          <div className="bg-white border border-slate-300 rounded-[10px] p-3 shadow-sm flex flex-row items-center justify-between gap-4">
-            <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-shrink-0">
-              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex-shrink-0">7</span>
-              Report Revising
-            </h4>
-            <div className="flex items-center gap-3 ml-auto">
-              {form.report_revising && (
-                <input
-                  type="text"
-                  value={form.revision_notes}
-                  onChange={e => handleChange('revision_notes', e.target.value)}
-                  readOnly={!isEditMode}
-                  placeholder="Revision details..."
-                  className={`w-36 px-2.5 py-1 border rounded-xl text-xs focus:outline-none ${isEditMode ? 'border-slate-400 focus:ring-2 focus:ring-slate-900 bg-white text-slate-855' : `${form.revision_notes ? 'bg-emerald-500 text-white font-bold' : 'border-slate-300 bg-slate-50/70 text-gray-600'} cursor-default`}`}
-                />
-              )}
-              <label className={`flex items-center gap-2 flex-shrink-0 ${isEditMode ? 'cursor-pointer' : 'cursor-default'}`}>
-                <span className="text-sm text-gray-700 font-semibold">Revising</span>
-                <input
-                  type="checkbox"
-                  checked={form.report_revising}
-                  onChange={e => isEditMode && handleCheckbox('report_revising', e.target.checked)}
-                  disabled={!isEditMode}
-                  className="w-4.5 h-4.5 rounded border-slate-300 text-slate-950 focus:ring-slate-950 disabled:opacity-60"
-                />
-              </label>
-            </div>
-          </div>
+      )}
+      {success && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700 mb-4 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4" /> {success}
         </div>
+      )}
+
+      {/* Progress Bar */}
+      <div className="w-full bg-gray-100 rounded-full h-2 mb-6">
+        <div
+          className="h-2 rounded-full bg-green-500 transition-all duration-500"
+          style={{ width: `${(progress / 10) * 100}%` }}
+        />
       </div>
 
-      {/* ── Notification Modal ── */}
-      {showNotifModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowNotifModal(false)}>
-          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
-              <h3 className="text-base font-bold text-slate-800">Send Notification</h3>
-              <button onClick={() => setShowNotifModal(false)} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="p-6">
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-sm text-slate-700 font-mono leading-relaxed">
-                <p>Dear Requester,</p>
-                <p className="mt-3">
-                  I would like to submit the I would like to send{' '}
-                  <span className="text-red-500 font-bold">investigation report of returned front wheel bearing from Indonesia</span>.
-                </p>
-                <p className="mt-3">
-                  Brg. No. {project.work_request?.bearing_no || '—'}<br />
-                  {(() => {
-                    const rns = project.report_numbers || [];
-                    const rnText = rns.length > 0
-                      ? rns.map(rn => rn.report_number).join(', ')
-                      : project.process?.report_number || form.comets_no || '—';
-                    return <>{rnText}{form.comets_no ? ' = 4pcs.' : ''}</>;
-                  })()}
-                </p>
-                <p className="mt-3">
-                  password : {(() => {
-                    const rns = project.report_numbers || [];
-                    const pwd = rns.length > 0
-                      ? rns.map(rn => rn.report_number).join(', ')
-                      : project.process?.report_number || form.comets_no || '';
-                    const digits = pwd.match(/\d+/)?.[0] || '';
-                    const num = digits || '26124';
-                    return <><span className="text-slate-700">aptc</span><span className="text-red-500 font-bold">{num}</span></>;
-                  })()}
-                </p>
-                <p className="mt-3">
-                  Best regards,<br />
-                  [APTC]T. Theera
-                </p>
-              </div>
-            </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center gap-2 justify-end">
-              <button
-                onClick={() => {
-                  const rns = project.report_numbers || [];
-                  const rnText = rns.length > 0
-                    ? rns.map(rn => rn.report_number).join(', ')
-                    : project.process?.report_number || form.comets_no || '—';
-                  const pwdText = rns.length > 0
-                    ? rns.map(rn => rn.report_number).join(', ')
-                    : project.process?.report_number || form.comets_no || '';
-                  const pwdDigits = pwdText.match(/\d+/)?.[0] || '';
-                  const password = pwdDigits ? `aptc${pwdDigits}` : 'aptc26124';
-                  const text = `Dear Requester,\n\nI would like to submit the I would like to send investigation report of returned front wheel bearing from Indonesia.\n\nBrg. No. ${project.work_request?.bearing_no || '—'}\n${rnText} ${form.comets_no ? '= 4pcs.' : ''}\n\npassword : ${password}\n\nBest regards,\n[APTC]T. Theera`;
-                  navigator.clipboard.writeText(text).then(() => {
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  });
-                }}
-                className="flex items-center gap-2 px-5 py-2.5 text-xs font-bold bg-slate-900 text-white hover:bg-slate-800 rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98]"
-              >
-                {copied ? <><Clipboard className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy Message</>}
-              </button>
-              <button onClick={() => setShowNotifModal(false)} className="px-4 py-2.5 text-xs font-bold border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl transition-colors">Close</button>
-            </div>
+      {/* Locked overlay hint */}
+      {!editMode && (
+        <div className="mb-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3 shadow-sm">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0 shadow-sm">
+            <Lock className="w-4 h-4 text-white" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-bold text-amber-800">🔒 Editing is locked</p>
+            <p className="text-xs text-amber-600">Click <strong className="text-amber-700">Edit Mode</strong> above to enable editing and mark steps complete</p>
           </div>
         </div>
       )}
+
+      {/* Steps */}
+      <div className={`space-y-3 ${!editMode ? 'pointer-events-none opacity-60 select-none' : ''}`}>
+        {[1, 2, 3, 4, 5, 6].map(stepNum => {
+          const complete = outputs?.[`step${stepNum}_complete`];
+          const displayNum = displayStepNum(stepNum);
+          return (
+            <div key={stepNum} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                  complete ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+                }`}>
+                  {complete ? <Check className="w-4 h-4" /> : displayNum}
+                </div>
+                <div>
+                  <span className={`text-sm ${complete ? 'text-green-700 font-medium' : 'text-gray-600'}`}>
+                    {OUTPUT_STEP_LABELS[displayNum]}
+                  </span>
+                  {displayNum === 8 && project.work_type === 'Others' && (
+                    <span className="text-xs text-gray-400 ml-2">(Optional for Others type)</span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => handleToggleStep(stepNum)}
+                disabled={saving}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  complete
+                    ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
+                    : 'bg-gray-50 text-gray-500 border border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                {complete ? 'Done' : 'Mark Done'}
+              </button>
+            </div>
+          );
+        })}
+
+        {/* Step 12 (Optional) — Two options */}
+        <div className="p-4 rounded-xl border border-dashed border-gray-200 bg-gray-50/50 space-y-3">
+          {/* Header */}
+          <div className="flex items-center gap-3">
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+              outputs?.step7_complete ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'
+            }`}>
+              {outputs?.step7_complete ? <Check className="w-4 h-4" /> : '12'}
+            </div>
+            <div>
+              <span className="text-sm text-gray-700 font-medium">{OUTPUT_STEP_LABELS[12]}</span>
+              <p className="text-[10px] text-gray-400">Choose an option below to proceed</p>
+            </div>
+            {outputs?.step7_complete && (
+              <span className="ml-auto text-xs px-2.5 py-1 rounded-full font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                Done
+              </span>
+            )}
+          </div>
+
+          {/* Option 1: Skip */}
+          <button
+            onClick={async () => {
+              setSaving(true);
+              setStep7Option('skip');
+              try {
+                await updateOutputs(projectId, { step7_complete: true, step7_data: '' });
+                await fetchOutputs();
+                onUpdate();
+              } catch (e: any) {
+                setError(e.response?.data?.detail || 'Failed');
+              } finally {
+                setSaving(false);
+              }
+            }}
+            disabled={saving || !editMode}
+            className={`w-full flex items-center gap-3 p-3.5 rounded-xl border-2 transition-all text-left ${
+              step7Option === 'skip'
+                ? 'border-green-400 bg-green-50 shadow-sm'
+                : 'border-gray-200 bg-white hover:border-green-300 hover:bg-green-50/50'
+            } ${!editMode ? 'opacity-60 pointer-events-none select-none' : ''}`}
+          >
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
+              step7Option === 'skip' ? 'bg-green-200 text-green-700' : 'bg-gray-100 text-gray-400'
+            }`}>
+              <Forward className="w-4 h-4" />
+            </div>
+            <div className="flex-1">
+              <span className={`text-sm font-bold ${step7Option === 'skip' ? 'text-green-800' : 'text-gray-700'}`}>
+                Skip — No revision needed
+              </span>
+              <p className="text-[11px] text-gray-500 mt-0.5">Report is final, no changes required</p>
+            </div>
+            {step7Option === 'skip' && (
+              <Check className="w-5 h-5 text-green-600 flex-shrink-0" />
+            )}
+          </button>
+
+          {/* Option 2: Revise */}
+          <div className={`rounded-xl border-2 transition-all ${
+            step7Option === 'revise'
+              ? 'border-blue-400 bg-blue-50 shadow-sm'
+              : 'border-gray-200 bg-white'
+          } ${!editMode ? 'opacity-60 pointer-events-none select-none' : ''}`}>
+            <button
+              onClick={() => {
+                if (!editMode) return;
+                setStep7Option('revise');
+              }}
+              disabled={!editMode}
+              className="w-full flex items-center gap-3 p-3.5 text-left"
+            >
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
+                step7Option === 'revise' ? 'bg-blue-200 text-blue-700' : 'bg-gray-100 text-gray-400'
+              }`}>
+                <FileText className="w-4 h-4" />
+              </div>
+              <div className="flex-1">
+                <span className={`text-sm font-bold ${step7Option === 'revise' ? 'text-blue-800' : 'text-gray-700'}`}>
+                  Revised — Report was revised
+                </span>
+                <p className="text-[11px] text-gray-500 mt-0.5">Fill in revision details below</p>
+              </div>
+              {step7Option === 'revise' && (
+                <Check className="w-5 h-5 text-blue-600 flex-shrink-0" />
+              )}
+            </button>
+
+            {/* Revision form (shown when Revise selected) */}
+            {step7Option === 'revise' && (
+              <div className="px-3.5 pb-4 space-y-3">
+                <div className="h-px bg-blue-200/50" />
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 mb-1.5 block">
+                    Revision reason <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    className="input-base w-full h-24 resize-none text-sm"
+                    placeholder="Who requested the revision and why?&#10;e.g.: Customer requested changes to test criteria"
+                    value={step7Data}
+                    onChange={e => setStep7Data(e.target.value)}
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={async () => {
+                      if (!step7Data.trim()) return;
+                      setSaving(true);
+                      try {
+                        await updateOutputs(projectId, { step7_complete: true, step7_data: step7Data.trim() });
+                        await fetchOutputs();
+                        onUpdate();
+                      } catch (e: any) {
+                        setError(e.response?.data?.detail || 'Failed');
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                    disabled={saving || !step7Data.trim()}
+                    className="btn-primary flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-sm"
+                  >
+                    <Save className="w-4 h-4" />
+                    {outputs?.step7_complete ? 'Update Revision' : 'Save Revision'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Complete Button */}
+      <div className="mt-6 pt-4 border-t border-gray-100 flex justify-end">
+        <button
+          onClick={handleComplete}
+          disabled={saving || !allRequiredComplete || !editMode}
+          className="btn-primary flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-50"
+        >
+          <CheckCircle2 className="w-4 h-4" />
+          {project.current_stage === 'completed' ? 'Project Completed' : 'Complete Project'}
+        </button>
+      </div>
     </div>
   );
 }

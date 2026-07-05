@@ -1,153 +1,142 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, Building2, Cpu, CheckCircle } from 'lucide-react';
+import { Calendar, Clock, ChevronRight, Play, CheckCircle2, AlertCircle } from 'lucide-react';
 import type { Project } from '../types';
+import { STAGE_LABELS } from '../types';
 import { startProcess } from '../api/client';
+import { formatDMY } from '../utils/dateUtils';
 
 interface Props {
   project: Project;
-  onRefresh?: () => void;
+  onUpdate: () => void;
 }
 
-// Work-type colour mapping — Color-Coded Flat (solid bg, white text, white borders)
-function getWorkTypeStyle(workType: string | undefined): {
-  badgeBg: string; badgeText: string; cardBg: string; cardBorder: string; cardGlow: string;
-  metaText: string; metaIcon: string; titleText: string;
-} {
-  const base = {
-    badgeBg: '', badgeText: 'text-white/90',
-    metaText: 'text-white/90', metaIcon: 'text-white/60', titleText: 'text-white',
-    cardBorder: 'border-white/25',
-  };
-  if (!workType) return {
-    ...base, cardBg: 'bg-slate-600', cardGlow: 'shadow-slate-500/30',
-  };
-  const wt = workType.trim().toLowerCase();
-  if (wt === 'evaluation') return {
-    ...base, cardBg: 'bg-orange-500', cardGlow: 'shadow-orange-400/30',
-  };
-  if (wt.startsWith('investigation')) return {
-    ...base, cardBg: 'bg-blue-500', cardGlow: 'shadow-blue-400/30',
-  };
-  if (wt === 'education for internal' || wt === 'maintenance' || wt === 'improvement') return {
-    ...base, cardBg: 'bg-teal-500', cardGlow: 'shadow-teal-400/30',
-  };
-  if (wt === 'tech. support' || wt === 'tech. support for s-pro' || wt === 'tech. support for shirozu ex') return {
-    ...base, cardBg: 'bg-violet-500', cardGlow: 'shadow-violet-400/30',
-  };
-  if (wt === 'meeting with internal' || wt === 'leave' || wt === 'admin' || wt === 'hr') return {
-    ...base, cardBg: 'bg-rose-500', cardGlow: 'shadow-rose-400/30',
-  };
-  return {
-    ...base, cardBg: 'bg-slate-500', cardGlow: 'shadow-slate-400/30',
-  };
-}
+const workTypeColors: Record<string, { bg: string; text: string; border: string }> = {
+  'Evaluation': { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
+  'Investigation': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+  'Investigation for Benchmark': { bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-200' },
+  'Investigation for Warranty': { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
+  'Maintenance': { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
+  'Improvement': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
+  'Others': { bg: 'bg-gray-50', text: 'text-gray-700', border: 'border-gray-200' },
+};
 
-// Due-date info
-function getDueInfo(dueDate: string | undefined): {
-  dateLabel: string; statusLabel: string; diff: number;
-  chipBg: string; chipText: string;
-} {
-  if (!dueDate) return {
-    dateLabel: 'No due date', statusLabel: '', diff: Infinity,
-    chipBg: '', chipText: '',
-  };
+function isOverdue(dueDate: string | undefined): boolean {
+  if (!dueDate) return false;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
-  const due = new Date(dueDate + 'T00:00:00');
-  const diff = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-  const dateLabel = due.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  if (diff <= 0) return {
-    dateLabel, diff,
-    statusLabel: diff === 0 ? 'Due today' : `${Math.abs(diff)} day${Math.abs(diff) === 1 ? '' : 's'} overdue`,
-    chipBg: 'bg-red-600', chipText: 'text-white',
-  };
-  if (diff <= 7) return {
-    dateLabel, diff,
-    statusLabel: `${diff} day${diff === 1 ? '' : 's'} left`,
-    chipBg: 'bg-amber-400', chipText: 'text-amber-900',
-  };
-  return {
-    dateLabel, diff,
-    statusLabel: `${diff} day${diff === 1 ? '' : 's'} left`,
-    chipBg: 'bg-emerald-400', chipText: 'text-emerald-900',
-  };
+  return new Date(dueDate + 'T00:00:00') < now;
 }
 
-export default function ProjectCard({ project, onRefresh }: Props) {
+export default function ProjectCard({ project, onUpdate }: Props) {
   const navigate = useNavigate();
-  const [accepting, setAccepting] = useState(false);
-  const wt = getWorkTypeStyle(project.work_type);
-  const due = getDueInfo(project.due_date);
-  const isOverdue = due.diff < 0;
-  const isWorkRequest = project.current_stage === 'work_request';
+  const colors = workTypeColors[project.work_type || ''] || workTypeColors['Others'];
+  const overdue = isOverdue(project.due_date);
 
-  const handleAccept = async (e: React.MouseEvent) => {
+  const handleStartProcess = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setAccepting(true);
     try {
       await startProcess(project.id);
-      onRefresh?.();
+      onUpdate();
     } catch (err) {
-      console.error('Failed to accept work', err);
-    } finally {
-      setAccepting(false);
+      console.error(err);
     }
   };
+
+  const stageDotColor = {
+    work_request: 'bg-gray-400',
+    process: 'bg-amber-400',
+    outputs: 'bg-green-400',
+    completed: 'bg-blue-400',
+  }[project.current_stage] || 'bg-gray-400';
+
+  // Stacked progress calculations
+  const proc = project.process;
+  const isCompleted = project.current_stage === 'completed';
+  const steps13Done = proc ? [1,2,3].filter(s => proc[`step${s}_complete` as keyof typeof proc]).length : 0;
+  const steps13Width = isCompleted ? 10 : (steps13Done / 3) * 10;
+  const gantt = project.gantt_tasks || [];
+  const ganttDone = gantt.filter(t => t.progress >= 100).length;
+  const step4Width = isCompleted ? 79 : (gantt.length > 0 ? (ganttDone / gantt.length) * 79 : 0);
+  const step5Width = isCompleted ? 1 : (proc?.step5_complete ? 1 : 0);
+  const out = project.outputs;
+  const outDone = out ? [1,2,3,4,5,6].filter(i => out[`step${i}_complete` as keyof typeof out]).length : 0;
+  const outputsWidth = isCompleted ? 10 : (out ? (outDone / 6) * 10 : 0);
+  const calcProgress = Math.round(steps13Width + step4Width + step5Width + outputsWidth);
 
   return (
     <div
       onClick={() => navigate(`/project/${project.id}`)}
-      className={`rounded-xl border cursor-pointer overflow-hidden group transition-all p-3 flex flex-col gap-2 hover:-translate-y-1 hover:shadow-xl ${wt.cardBg} ${wt.cardBorder} ${wt.cardGlow} shadow-lg`}
+      className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all cursor-pointer group relative"
     >
-      {/* Line 1: Badge + Due status */}
-      <div className="flex items-start justify-between gap-1.5 min-w-0">
-        <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full ${wt.badgeBg} ${wt.badgeText} flex-shrink-0 leading-tight backdrop-blur-sm`}>
-          {project.work_type || 'G'}
+      {/* Work Type Badge */}
+      <div className="flex items-center justify-between mb-2">
+        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${colors.bg} ${colors.text} ${colors.border} border`}>
+          {project.work_type || 'N/A'}
         </span>
-        {due.statusLabel && (
-          <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md ${due.chipBg} ${due.chipText} flex-shrink-0 leading-tight ml-auto`}>
-            {due.statusLabel}
-          </span>
+        <div className="flex items-center gap-1">
+          <span className={`w-2 h-2 rounded-full ${stageDotColor}`} />
+          <span className="text-[10px] text-gray-400">{STAGE_LABELS[project.current_stage]}</span>
+        </div>
+      </div>
+
+      {/* Title */}
+      <h3 className="text-sm font-bold text-gray-800 mb-2 line-clamp-2 leading-tight">
+        {project.title}
+      </h3>
+
+      {/* Info */}
+      <div className="space-y-1 mb-3">
+        {project.customer_name && (
+          <p className="text-xs text-gray-500 truncate">
+            {project.requester && `${project.requester} • `}{project.customer_name}
+          </p>
+        )}
+        {project.bearing_no && (
+          <p className="text-xs text-gray-400 truncate">Bearing: {project.bearing_no}</p>
         )}
       </div>
 
-      {/* Line 2: Title — no background */}
-      <p className={`text-[13px] font-extrabold text-white leading-snug line-clamp-1 group-hover:opacity-80 transition-opacity`}>
-        {project.title}
-      </p>
+      {/* Progress - Stacked Bar */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] text-gray-400">Progress</span>
+          <span className="text-[10px] font-semibold text-gray-600">{calcProgress}%</span>
+        </div>
+        <div className="w-full bg-gray-100 rounded-full h-2 flex overflow-hidden">
+          <div className="h-full bg-blue-500 transition-all" style={{ width: `${steps13Width}%` }} />
+          <div className="h-full bg-teal-500 transition-all" style={{ width: `${step4Width}%` }} />
+          <div className="h-full bg-amber-400 transition-all" style={{ width: `${step5Width}%` }} />
+          <div className="h-full bg-purple-500 transition-all" style={{ width: `${outputsWidth}%` }} />
+        </div>
+      </div>
 
-      {/* Line 3: Meta — all plain text without background */}
-      <div className="flex items-center gap-1.5 text-[11px] font-bold text-white/90 min-w-0 flex-wrap">
-        {project.bearing_no && (
-          <span className="flex items-center gap-1 truncate max-w-[120px]">
-            <Cpu className="w-3 h-3 text-white/60 flex-shrink-0" />
-            <span className="truncate">{project.bearing_no}</span>
-          </span>
-        )}
-        {project.customer_name && (
-          <span className="flex items-center gap-1 truncate max-w-[120px]">
-            <Building2 className="w-3 h-3 text-white/60 flex-shrink-0" />
-            <span className="truncate">{project.customer_name}</span>
-          </span>
-        )}
-        <span className="ml-auto flex items-center gap-1 flex-shrink-0">
-          <CalendarDays className="w-3 h-3 text-white/60" />
-          <span className="text-white/90">{due.dateLabel}</span>
+      {/* Dates */}
+      <div className="flex items-center justify-between text-[10px] text-gray-400">
+        <span className="flex items-center gap-1">
+          <Calendar className="w-3 h-3" />
+          {formatDMY(project.received_date)}
         </span>
-        {isWorkRequest && (
-          <button
-            onClick={handleAccept}
-            disabled={accepting}
-            className="flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-semibold text-white bg-gray-900/80 hover:bg-gray-900 rounded-md transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 flex-shrink-0"
-          >
-            <CheckCircle className="w-3 h-3" />
-            <span>{accepting ? '...' : 'Start'}</span>
-          </button>
-        )}
+        <span className={`flex items-center gap-1 ${overdue ? 'text-red-500 font-semibold' : ''}`}>
+          <Clock className="w-3 h-3" />
+          {formatDMY(project.due_date)}
+          {overdue && <AlertCircle className="w-3 h-3" />}
+        </span>
+      </div>
+
+      {/* Start Process Button (for Work Request stage) */}
+      {project.current_stage === 'work_request' && (
+        <button
+          onClick={handleStartProcess}
+          className="mt-3 w-full btn-primary text-xs py-1.5 flex items-center justify-center gap-1"
+        >
+          <Play className="w-3 h-3" /> Start Process
+        </button>
+      )}
+
+      {/* Chevron */}
+      <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+        <ChevronRight className="w-4 h-4 text-gray-300" />
       </div>
     </div>
   );
 }
-
-

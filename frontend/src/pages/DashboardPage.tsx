@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Plus, Search, RefreshCw, Layers, Activity, PauseCircle,
-  AlertCircle, ChevronDown, ChevronUp, Inbox,
-  FileText, Settings, ClipboardList, CheckCircle2, SlidersHorizontal,
+  Plus, Search, Layers, Activity, CheckCircle2,
+  ClipboardList, FileText, Settings, SlidersHorizontal,
 } from 'lucide-react';
-import { getProjects } from '../api/client';
-import type { Project } from '../types';
+import { getProjects, getSummary } from '../api/client';
+import type { Project, ProjectSummary } from '../types';
 import { STAGE_LABELS, WORK_TYPES } from '../types';
 import ProjectCard from '../components/ProjectCard';
 import ProjectForm from '../components/ProjectForm';
@@ -18,7 +17,6 @@ const columnConfig: Record<string, {
   iconColor: string;
   badgeBg: string;
   badgeText: string;
-  emptyIcon: React.ReactNode;
   label: string;
 }> = {
   work_request: {
@@ -27,7 +25,6 @@ const columnConfig: Record<string, {
     iconColor: 'text-gray-600',
     badgeBg: 'bg-gray-200',
     badgeText: 'text-gray-600',
-    emptyIcon: <ClipboardList className="w-8 h-8" />,
     label: STAGE_LABELS['work_request'],
   },
   process: {
@@ -36,7 +33,6 @@ const columnConfig: Record<string, {
     iconColor: 'text-amber-600',
     badgeBg: 'bg-amber-100',
     badgeText: 'text-amber-700',
-    emptyIcon: <Settings className="w-8 h-8" />,
     label: STAGE_LABELS['process'],
   },
   outputs: {
@@ -45,7 +41,6 @@ const columnConfig: Record<string, {
     iconColor: 'text-green-600',
     badgeBg: 'bg-green-100',
     badgeText: 'text-green-700',
-    emptyIcon: <FileText className="w-8 h-8" />,
     label: STAGE_LABELS['outputs'],
   },
 };
@@ -67,17 +62,19 @@ export default function DashboardPage() {
   const [search, setSearch] = useState('');
   const [workType, setWorkType] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
+  const [summary, setSummary] = useState<ProjectSummary | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showCompleted, setShowCompleted] = useState(false);
 
-  const fetchProjects = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, unknown> = { year };
       if (search.trim()) params.search = search.trim();
       const data = await getProjects(params as any);
       setProjects(data);
+      const sum = await getSummary({ year });
+      setSummary(sum);
     } catch (e) {
       console.error('Failed to fetch projects', e);
     } finally {
@@ -86,8 +83,8 @@ export default function DashboardPage() {
   }, [year, search]);
 
   useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
+    fetchData();
+  }, [fetchData]);
 
   const filteredProjects = workType
     ? projects.filter(p => p.work_type?.toLowerCase() === workType.toLowerCase())
@@ -95,261 +92,175 @@ export default function DashboardPage() {
 
   const activeProjects = filteredProjects.filter(p => p.current_stage !== 'completed');
   const completedProjects = filteredProjects.filter(p => p.current_stage === 'completed');
-  const pausedProjects = filteredProjects.filter(p => p.status === 'paused');
   const overdueProjects = activeProjects.filter(p => isOverdue(p.due_date));
-  const inProgressCount = filteredProjects.filter(p => p.status === 'active' && p.current_stage !== 'completed').length;
 
-  const years: number[] = [];
-  for (let y = 2020; y <= 2099; y++) years.push(y);
-
-  const today = new Date().toLocaleDateString('en-GB', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  const stageMap: Record<string, Project[]> = {
+    work_request: [],
+    process: [],
+    outputs: [],
+  };
+  activeProjects.forEach(p => {
+    if (stageMap[p.current_stage]) {
+      stageMap[p.current_stage].push(p);
+    }
   });
 
-  const statCards = [
-    {
-      label: 'Total Active',
-      value: activeProjects.length,
-      icon: <Layers className="w-4 h-4" />,
-      colors: 'bg-sky-50 text-sky-700',
-      valueColor: 'text-sky-900',
-    },
-    {
-      label: 'In Progress',
-      value: inProgressCount,
-      icon: <Activity className="w-4 h-4" />,
-      colors: 'bg-emerald-50 text-emerald-700',
-      valueColor: 'text-emerald-900',
-    },
-    {
-      label: 'Paused',
-      value: pausedProjects.length,
-      icon: <PauseCircle className="w-4 h-4" />,
-      colors: 'bg-amber-50 text-amber-700',
-      valueColor: 'text-amber-900',
-    },
-    {
-      label: 'Overdue',
-      value: overdueProjects.length,
-      icon: <AlertCircle className="w-4 h-4" />,
-      colors: 'bg-rose-50 text-rose-700',
-      valueColor: 'text-rose-900',
-    },
-  ];
-
   return (
-    <div className="space-y-5">
-
-      {/* ── Page Header ─────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="p-3 lg:p-4 space-y-3 lg:space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-800 tracking-tight">Project Dashboard</h1>
-          <p className="text-xs text-slate-500 mt-0.5">{today}</p>
+          <h1 className="text-xl font-bold text-gray-900">Project Dashboard</h1>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="btn-primary"
-        >
-          <Plus className="w-4 h-4" />
-          New Project
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowCreate(true)}
+            className="btn-primary flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            New Project
+          </button>
+        </div>
       </div>
 
-      {/* ── KPI Summary Cards ───────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCards.map((s) => (
-          <div key={s.label} className="bg-white rounded-xl p-4 flex items-center gap-3.5 border border-slate-200 shadow-sm">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${s.colors}`}>
-              {s.icon}
-            </div>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-blue-50 rounded-lg"><Activity className="w-5 h-5 text-blue-600" /></div>
             <div>
-              <p className={`text-xl font-black leading-none tracking-tight ${s.valueColor}`}>{s.value}</p>
-              <p className="text-[11px] font-semibold text-slate-400 mt-1 uppercase tracking-wider">{s.label}</p>
+              <p className="text-xs text-gray-500">Total Active</p>
+              <p className="text-xl font-bold text-gray-900">{activeProjects.length}</p>
             </div>
           </div>
-        ))}
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-50 rounded-lg"><Layers className="w-5 h-5 text-amber-600" /></div>
+            <div>
+              <p className="text-xs text-gray-500">In Process</p>
+              <p className="text-xl font-bold text-gray-900">{stageMap.process.length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-green-50 rounded-lg"><CheckCircle2 className="w-5 h-5 text-green-600" /></div>
+            <div>
+              <p className="text-xs text-gray-500">Completed</p>
+              <p className="text-xl font-bold text-gray-900">{completedProjects.length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-red-50 rounded-lg"><ClipboardList className="w-5 h-5 text-red-600" /></div>
+            <div>
+              <p className="text-xs text-gray-500">Overdue</p>
+              <p className="text-xl font-bold text-gray-900">{overdueProjects.length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-purple-50 rounded-lg"><Activity className="w-5 h-5 text-purple-600" /></div>
+            <div>
+              <p className="text-xs text-gray-500">Avg Progress</p>
+              <p className="text-xl font-bold text-gray-900">{avgProgress(activeProjects)}%</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* ── Filter / Control Bar ────────────────────── */}
-      <div className="bg-white flex flex-wrap items-center gap-3 px-4 py-2 border border-slate-200 rounded-xl shadow-sm">
-        {/* Label */}
-        <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-        <span className="text-xs font-bold text-slate-400 flex-shrink-0 uppercase tracking-wider">Filters</span>
-
-        {/* Divider */}
-        <div className="w-px h-4 bg-slate-200 flex-shrink-0" />
-
-        {/* Year */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          <label className="text-xs font-medium text-slate-500">Year</label>
-          <select
-            value={year}
-            onChange={e => setYear(Number(e.target.value))}
-            className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-700 font-semibold focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-transparent"
-          >
-            {years.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-
-        {/* Divider */}
-        <div className="w-px h-4 bg-slate-200 flex-shrink-0" />
-
-        {/* Work Type */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          <label className="text-xs font-medium text-slate-500">Type</label>
-          <select
-            value={workType}
-            onChange={e => setWorkType(e.target.value)}
-            className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-700 font-semibold focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-transparent"
-          >
-            <option value="">All</option>
-            {WORK_TYPES.map(wt => <option key={wt} value={wt}>{wt}</option>)}
-          </select>
-        </div>
-
-        {/* Divider */}
-        <div className="w-px h-4 bg-slate-200 flex-shrink-0" />
-
-        {/* Search */}
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
+            placeholder="Search projects..."
+            className="input-base w-full"
+            style={{ paddingLeft: '2.5rem' }}
             value={search}
             onChange={e => setSearch(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && fetchProjects()}
-            placeholder="Search projects, customers, bearings..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-transparent"
           />
         </div>
-
-        {/* Clear + Refresh */}
-        {search && (
-          <button
-            onClick={() => { setSearch(''); fetchProjects(); }}
-            className="flex-shrink-0 text-xs font-semibold text-slate-400 hover:text-rose-500 transition-colors"
-          >
-            ✕ Clear
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <select className="input-base w-36 sm:w-40" value={year} onChange={e => setYear(Number(e.target.value))}>
+            {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+          <select className="input-base flex-1 sm:w-48 min-w-0" value={workType} onChange={e => setWorkType(e.target.value)}>
+            <option value="">All Work Types</option>
+            {WORK_TYPES.map(wt => <option key={wt} value={wt}>{wt}</option>)}
+          </select>
+          <button onClick={fetchData} className="btn-secondary p-2.5 flex-shrink-0">
+            <SlidersHorizontal className="w-4 h-4" />
           </button>
-        )}
-        <button
-          onClick={fetchProjects}
-          disabled={loading}
-          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 active:bg-slate-100 disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          <span>Refresh</span>
-        </button>
+        </div>
       </div>
 
-      {/* ── Kanban Board ────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      {/* Kanban Board */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-6">
         {KANBAN_STAGES.map(stage => {
           const cfg = columnConfig[stage];
-          const stageProjects = filteredProjects
-            .filter(p => p.current_stage === stage)
-            .sort((a, b) => {
-              if (!a.due_date && !b.due_date) return 0;
-              if (!a.due_date) return 1;
-              if (!b.due_date) return -1;
-              return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
-            });
-          const avg = avgProgress(stageProjects);
-
+          const list = stageMap[stage] || [];
           return (
-            <div key={stage} className="card flex flex-col overflow-hidden">
-
+            <div key={stage} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
               {/* Column Header */}
-              <div className="px-4 py-3 flex items-center justify-between border-b border-gray-100">
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-7 h-7 rounded-xl ${cfg.iconBg} flex items-center justify-center flex-shrink-0`}>
-                    <span className={cfg.iconColor}>
-                      {stage === 'work_request' && <ClipboardList className="w-4 h-4" />}
-                      {stage === 'process' && <Settings className="w-4 h-4" />}
-                      {stage === 'outputs' && <FileText className="w-4 h-4" />}
-                    </span>
-                  </div>
-                  <div>
-                    <h2 className="font-semibold text-sm text-slate-800">{STAGE_LABELS[stage]}</h2>
-                    {stageProjects.length > 0 && (
-                      <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-0.5">Avg. progress {avg}%</p>
-                    )}
-                  </div>
+              <div className={`${cfg.topBar} px-4 py-3 flex items-center justify-between`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-white">{cfg.label}</span>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cfg.badgeBg} ${cfg.badgeText}`}>
+                    {list.length}
+                  </span>
                 </div>
-                <span className={`w-5.5 h-5.5 rounded-full font-bold flex items-center justify-center flex-shrink-0 text-[11px] ${cfg.badgeBg} ${cfg.badgeText}`}>
-                  {stageProjects.length}
-                </span>
               </div>
 
-              {/* Cards Area */}
-              <div className="flex-1 p-3 space-y-2.5 max-h-[calc(100vh-400px)] overflow-y-auto scrollbar-thin bg-slate-50/70">
-                {stageProjects.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-14 text-slate-300">
-                    <span className={cfg.iconColor + ' opacity-35'}>{cfg.emptyIcon}</span>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mt-2">No projects</p>
+              {/* Cards */}
+              <div className="p-3 space-y-3 min-h-[300px] max-h-[600px] overflow-y-auto">
+                {list.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-40 text-gray-400">
+                    <p className="text-sm">No projects</p>
                   </div>
                 ) : (
-                  stageProjects.map(p => <ProjectCard key={p.id} project={p} onRefresh={fetchProjects} />)
+                  list.map(project => (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      onUpdate={fetchData}
+                    />
+                  ))
                 )}
               </div>
-
-              {/* Column Footer */}
-              {stageProjects.length > 0 && (
-                <div className="px-4 py-2.5 border-t border-slate-100 bg-white">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Overall progress</span>
-                    <span className="text-[10px] font-bold text-slate-600">{avg}%</span>
-                  </div>
-                  <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-1 rounded-full transition-all duration-500 ${cfg.topBar}`}
-                      style={{ width: `${avg}%` }}
-                    />
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
       </div>
 
-      {/* ── Completed Projects ──────────────────────── */}
+      {/* Completed Projects */}
       {completedProjects.length > 0 && (
-        <div className="card overflow-hidden">
-          <button
-            onClick={() => setShowCompleted(!showCompleted)}
-            className="w-full px-5 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-7 h-7 rounded-xl bg-green-50 flex items-center justify-center">
-                <CheckCircle2 className="w-4 h-4 text-green-600" />
-              </div>
-              <span className="text-sm font-semibold text-gray-800">Completed Projects</span>
-              <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                {completedProjects.length}
-              </span>
-            </div>
-            {showCompleted
-              ? <ChevronUp className="w-4 h-4 text-gray-400" />
-              : <ChevronDown className="w-4 h-4 text-gray-400" />
-            }
-          </button>
-          {showCompleted && (
-            <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 bg-gray-50/50 border-t border-gray-100">
-              {completedProjects.map(p => <ProjectCard key={p.id} project={p} onRefresh={fetchProjects} />)}
-            </div>
-          )}
-        </div>
+        <details className="bg-white rounded-xl border border-gray-100 shadow-sm">
+          <summary className="px-4 py-3 cursor-pointer text-sm font-semibold text-gray-700 hover:bg-gray-50 rounded-xl">
+            Completed Projects ({completedProjects.length})
+          </summary>
+          <div className="p-3 grid grid-cols-3 gap-3">
+            {completedProjects.map(project => (
+              <ProjectCard key={project.id} project={project} onUpdate={fetchData} />
+            ))}
+          </div>
+        </details>
       )}
 
-      {/* ── Create Modal ─────────────────────────────── */}
+      {/* Create Project Modal */}
       {showCreate && (
         <ProjectForm
+          onClose={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
-            fetchProjects();
+            fetchData();
           }}
-          onCancel={() => setShowCreate(false)}
         />
       )}
     </div>
