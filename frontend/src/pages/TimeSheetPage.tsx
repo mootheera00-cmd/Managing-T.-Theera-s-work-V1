@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  ChevronLeft, ChevronRight, Clock, Download, Plus, X, Trash2, Pencil, Calendar, AlertCircle, CheckCircle2
+  ChevronLeft, ChevronRight, Clock, Download, Plus, X, Trash2, Pencil, Calendar, AlertCircle, CheckCircle2, ArrowLeft, FileText
 } from 'lucide-react';
 import {
   getTimeLogs, createTimeLog, updateTimeLog, deleteTimeLog,
-  getActiveProjectsForTimesheet, checkDailyHours
+  getActiveProjectsForTimesheet, checkDailyHours, getProject
 } from '../api/client';
 import type { Project, TimeLogEntry, GanttTask } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
 /* ── Date helpers ── */
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -62,43 +63,51 @@ const workTypeColors: Record<string, { bg: string; text: string; border: string 
 };
 
 export default function TimeSheetPage() {
+  const { user } = useAuth();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [weekStart, setWeekStart] = useState(getMonday(new Date()));
   const [timeLogs, setTimeLogs] = useState<TimeLogEntry[]>([]);
   const [activeProjects, setActiveProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedTask, setSelectedTask] = useState<GanttTask | null>(null);
+  const [selectedReportNo, setSelectedReportNo] = useState<number>(0);
   const [showHourPopup, setShowHourPopup] = useState(false);
   const [showOtConfirm, setShowOtConfirm] = useState(false);
   const [otConfirmData, setOtConfirmData] = useState<{ currentTotal: number; newHours: number; otHours: number } | null>(null);
   const [pendingSubmit, setPendingSubmit] = useState(false);
   const [hourInput, setHourInput] = useState(1);
   const [commentInput, setCommentInput] = useState('');
-  const [userNameInput, setUserNameInput] = useState(() => localStorage.getItem('app_user_name') || 'T.Theera');
+  const [userNameInput, setUserNameInput] = useState(() => user?.display_name || user?.username || localStorage.getItem('app_user_name') || '');
   const [codeInput, setCodeInput] = useState('');
   const [modeInput, setModeInput] = useState('log');
   const [editingLog, setEditingLog] = useState<TimeLogEntry | null>(null);
   const [loading, setLoading] = useState(false);
   const [dateHours, setDateHours] = useState<Record<string, { total: number; is_full: boolean; can_ot: boolean }>>({});
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
+  const [showSummary, setShowSummary] = useState(false);
+  const [summaryMode, setSummaryMode] = useState<'monthly' | 'yearly'>('monthly');
+  const [summaryMonth, setSummaryMonth] = useState(new Date().getMonth());
+  const [summaryYear, setSummaryYear] = useState(new Date().getFullYear());
 
   const fetchProjects = useCallback(async () => {
     try {
-      const projects = await getActiveProjectsForTimesheet();
+      const un = userNameInput || user?.display_name || user?.username || '';
+      const projects = await getActiveProjectsForTimesheet(un);
       setActiveProjects(projects);
     } catch (e) {
       console.error(e);
     }
-  }, []);
+  }, [userNameInput, user]);
 
   const fetchLogs = useCallback(async (date: string) => {
     setLoading(true);
     try {
-      const logs = await getTimeLogs({ date });
+      const un = userNameInput || user?.display_name || user?.username || '';
+      const logs = await getTimeLogs({ date, user_name: un });
       setTimeLogs(logs);
       
       // Check hours for this date
-      const hoursInfo = await checkDailyHours(date);
+      const hoursInfo = await checkDailyHours(date, un);
       setDateHours(prev => ({
         ...prev,
         [date]: { total: hoursInfo.total_hours, is_full: hoursInfo.is_full, can_ot: hoursInfo.can_add_overtime }
@@ -108,32 +117,35 @@ export default function TimeSheetPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userNameInput, user]);
 
   useEffect(() => {
     fetchProjects();
   }, [fetchProjects]);
 
   // Fetch hours for all days of the week
-  // Save user name to localStorage whenever it changes
+  // Sync userNameInput when auth user changes
   useEffect(() => {
-    if (userNameInput) localStorage.setItem('app_user_name', userNameInput);
-  }, [userNameInput]);
+    if (user && !userNameInput) {
+      setUserNameInput(user.display_name || user.username);
+    }
+  }, [user]);
 
   const fetchWeekHours = useCallback(async (start: Date) => {
     const days: string[] = [];
     for (let i = 0; i < 7; i++) {
       days.push(formatDate(addDays(start, i)));
     }
+    const un = userNameInput || user?.display_name || user?.username || '';
     const results: Record<string, { total: number; is_full: boolean; can_ot: boolean }> = {};
     for (const d of days) {
       try {
-        const info = await checkDailyHours(d);
+        const info = await checkDailyHours(d, un);
         results[d] = { total: info.total_hours, is_full: info.is_full, can_ot: info.can_add_overtime };
       } catch { /* ignore */ }
     }
     setDateHours(prev => ({ ...prev, ...results }));
-  }, []);
+  }, [userNameInput, user]);
 
   useEffect(() => {
     fetchWeekHours(weekStart);
@@ -176,6 +188,7 @@ export default function TimeSheetPage() {
   const handleSelectProject = (project: Project) => {
     setSelectedProject(project);
     setSelectedTask(null);
+    setSelectedReportNo(0);
   };
 
   const handleSelectTask = (task: GanttTask) => {
@@ -183,10 +196,11 @@ export default function TimeSheetPage() {
     setShowHourPopup(true);
     setHourInput(1);
     setCommentInput('');
-    setUserNameInput(localStorage.getItem('app_user_name') || 'T.Theera');
+    setUserNameInput(user?.display_name || user?.username || '');
     setCodeInput('');
     setModeInput('log');
     setEditingLog(null);
+    setSelectedReportNo(0);
   };
 
   const handleAddHour = async () => {
@@ -224,7 +238,7 @@ export default function TimeSheetPage() {
         entry_date: selectedDate,
         hours: hourInput,
         comment: commentInput,
-        user_name: userNameInput || 'S.Nattiwat',
+        user_name: userNameInput || user?.display_name || user?.username || 'User',
         group_name: 'HUB',
         sales: selectedProject.work_type || '',
         category: selectedProject.work_type || '',
@@ -232,6 +246,7 @@ export default function TimeSheetPage() {
         aptx: selectedProject.bearing_no || '',
         code: codeInput || undefined,
         mode: modeInput || 'log',
+        report_number_id: selectedReportNo || undefined,
       });
       
       setShowHourPopup(false);
@@ -246,7 +261,7 @@ export default function TimeSheetPage() {
     setEditingLog(log);
     setHourInput(log.hours);
     setCommentInput(log.comment || '');
-    setUserNameInput(log.user_name || 'S.Nattiwat');
+    setUserNameInput(log.user_name || user?.display_name || user?.username || '');
     setCodeInput(log.code || '');
     setModeInput(log.mode || 'log');
     setShowHourPopup(true);
@@ -326,10 +341,15 @@ export default function TimeSheetPage() {
 
   return (
     <div className="p-2 lg:p-3 space-y-2 lg:space-y-3">
+      {!showSummary ? (
+        <>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-bold text-gray-900">Time Sheet</h1>
+          <button onClick={() => setShowSummary(true)} className="btn-primary flex items-center gap-1.5 text-xs px-3 py-1.5">
+            <Calendar className="w-3.5 h-3.5" /> Summary
+          </button>
           <button onClick={exportToCsv} className="btn-secondary flex items-center gap-1.5 text-xs px-3 py-1.5" disabled={timeLogs.length === 0}>
             <Download className="w-3.5 h-3.5" /> Export CSV
           </button>
@@ -612,6 +632,23 @@ export default function TimeSheetPage() {
                 <label className="text-xs font-medium text-gray-500">Task</label>
                 <p className="text-sm text-gray-700">{selectedTask?.name || editingLog?.task_name || 'General'}</p>
               </div>
+              {selectedProject && selectedProject.report_numbers && selectedProject.report_numbers.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Report No.</label>
+                  <select
+                    value={selectedReportNo}
+                    onChange={e => setSelectedReportNo(parseInt(e.target.value))}
+                    className="input-base w-full text-sm"
+                  >
+                    <option value={0}>— Select Report —</option>
+                    {selectedProject.report_numbers.map(rn => (
+                      <option key={rn.id} value={rn.id}>
+                        {rn.report_number}{rn.item_description ? ` - ${rn.item_description}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-medium text-gray-500">Date</label>
                 <p className="text-sm text-gray-700">{selectedDate}</p>
@@ -751,6 +788,393 @@ export default function TimeSheetPage() {
             </div>
           </div>
         </div>
+      )}
+        </>
+      ) : (
+        /* ═══════ SUMMARY PAGE VIEW ═══════ */
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-200 bg-gray-50/50">
+            <button onClick={() => setShowSummary(false)} className="btn-secondary p-1.5 rounded-lg flex-shrink-0">
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <h2 className="text-base font-bold text-gray-900">📊 Time Sheet Summary</h2>
+          </div>
+          <SummaryContent
+            summaryMode={summaryMode}
+            setSummaryMode={setSummaryMode}
+            summaryMonth={summaryMonth}
+            setSummaryMonth={setSummaryMonth}
+            summaryYear={summaryYear}
+            setSummaryYear={setSummaryYear}
+            getTimeLogs={getTimeLogs}
+            userNameInput={userNameInput}
+            user={user}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+/* SUMMARY CONTENT – extracted component                          */
+/* ═══════════════════════════════════════════════════════════════ */
+function SummaryContent({
+  summaryMode, setSummaryMode,
+  summaryMonth, setSummaryMonth,
+  summaryYear, setSummaryYear,
+  getTimeLogs,
+  userNameInput: unInput,
+  user: authUser,
+}: {
+  summaryMode: 'monthly' | 'yearly';
+  setSummaryMode: (m: 'monthly' | 'yearly') => void;
+  summaryMonth: number;
+  setSummaryMonth: (m: number) => void;
+  summaryYear: number;
+  setSummaryYear: (y: number) => void;
+  getTimeLogs: (params?: any) => Promise<any[]>;
+  userNameInput: string;
+  user: { display_name?: string; username?: string } | null;
+}) {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expandedDate, setExpandedDate] = useState<string | null>(null);
+  const [searchDate, setSearchDate] = useState('');
+  const [projectRequesters, setProjectRequesters] = useState<Record<number, string>>({});
+
+  // Build date range
+  const dateRange = useMemo(() => {
+    if (summaryMode === 'monthly') {
+      const start = `${summaryYear}-${String(summaryMonth + 1).padStart(2, '0')}-01`;
+      const lastDay = new Date(summaryYear, summaryMonth + 1, 0).getDate();
+      const end = `${summaryYear}-${String(summaryMonth + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      return { start, end };
+    } else {
+      return { start: `${summaryYear}-01-01`, end: `${summaryYear}-12-31` };
+    }
+  }, [summaryMode, summaryMonth, summaryYear]);
+
+  // Fetch logs when date range changes
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const un = unInput || authUser?.display_name || authUser?.username || '';
+        const data = await getTimeLogs({ date_from: dateRange.start, date_to: dateRange.end, user_name: un });
+        setLogs(data);
+        // Build project-id -> requester map
+        const projIds = new Set(data.map((l: any) => l.project_id));
+        const map: Record<number, string> = {};
+        try {
+          // Try to use getProject for each unique project
+          for (const pid of projIds) {
+            if (pid) {
+              try {
+                const proj = await getProject(pid);
+                map[pid] = proj.requester || 'Unknown';
+              } catch { map[pid] = 'Unknown'; }
+            }
+          }
+        } catch {}
+        setProjectRequesters(map);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [dateRange, getTimeLogs, unInput, authUser]);
+
+  // Work type totals
+  const workTypeTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    logs.forEach(log => {
+      const wt = log.sales || log.category || 'Others';
+      totals[wt] = (totals[wt] || 0) + log.hours;
+    });
+    return Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  }, [logs]);
+
+  // Customer totals
+  const customerTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    logs.forEach(log => {
+      const cust = log.customer || 'Unknown';
+      totals[cust] = (totals[cust] || 0) + log.hours;
+    });
+    return Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  }, [logs]);
+
+  // Requester (from project) totals
+  const requesterTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    logs.forEach(log => {
+      const name = projectRequesters[log.project_id] || 'Unknown';
+      totals[name] = (totals[name] || 0) + log.hours;
+    });
+    return Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  }, [logs, projectRequesters]);
+
+  // Daily totals
+  const dailyTotals = useMemo(() => {
+    const byDay: Record<string, { hours: number; logs: any[] }> = {};
+    logs.forEach(log => {
+      const d = log.entry_date;
+      if (!byDay[d]) byDay[d] = { hours: 0, logs: [] };
+      byDay[d].hours += log.hours;
+      byDay[d].logs.push(log);
+    });
+    return Object.entries(byDay).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [logs]);
+
+  const totalHours = logs.reduce((s, l) => s + l.hours, 0);
+  const maxWT = workTypeTotals.length > 0 ? workTypeTotals[0][1] : 1;
+  const maxCust = customerTotals.length > 0 ? customerTotals[0][1] : 1;
+  const maxReq = requesterTotals.length > 0 ? requesterTotals[0][1] : 1;
+  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  const wtColors: Record<string, string> = {
+    'Evaluation': 'bg-orange-500',
+    'Investigation': 'bg-blue-500',
+    'Investigation for Benchmark': 'bg-cyan-500',
+    'Investigation for Warranty': 'bg-red-500',
+    'Maintenance': 'bg-green-500',
+    'Improvement': 'bg-purple-500',
+    'Others': 'bg-gray-400',
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Mode Toggle + Navigation */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
+          <button onClick={() => setSummaryMode('monthly')}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${summaryMode === 'monthly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+            Monthly
+          </button>
+          <button onClick={() => setSummaryMode('yearly')}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${summaryMode === 'yearly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+            Yearly
+          </button>
+        </div>
+        <div className="flex items-center gap-3">
+          {summaryMode === 'monthly' ? (
+            <>
+              <button onClick={() => { if (summaryMonth === 0) { setSummaryMonth(11); setSummaryYear(summaryYear - 1); } else setSummaryMonth(summaryMonth - 1); }}
+                className="p-1.5 hover:bg-gray-100 rounded-lg"><ChevronLeft className="w-4 h-4" /></button>
+              <span className="text-sm font-semibold min-w-[120px] text-center">{MONTH_NAMES[summaryMonth]} {summaryYear}</span>
+              <button onClick={() => { if (summaryMonth === 11) { setSummaryMonth(0); setSummaryYear(summaryYear + 1); } else setSummaryMonth(summaryMonth + 1); }}
+                className="p-1.5 hover:bg-gray-100 rounded-lg"><ChevronRight className="w-4 h-4" /></button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setSummaryYear(summaryYear - 1)}
+                className="p-1.5 hover:bg-gray-100 rounded-lg"><ChevronLeft className="w-4 h-4" /></button>
+              <span className="text-sm font-semibold min-w-[80px] text-center">{summaryYear}</span>
+              <button onClick={() => setSummaryYear(summaryYear + 1)}
+                className="p-1.5 hover:bg-gray-100 rounded-lg"><ChevronRight className="w-4 h-4" /></button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400">
+          <Clock className="w-10 h-10 mx-auto mb-2 animate-pulse" />
+          <p className="text-sm">Loading summary...</p>
+        </div>
+      ) : logs.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <Calendar className="w-10 h-10 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No time logs found for this period</p>
+        </div>
+      ) : (
+        <>
+          {/* Stats Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+              <p className="text-xs text-blue-600 font-medium">Total Hours</p>
+              <p className="text-2xl font-bold text-blue-900">{totalHours.toFixed(1)}</p>
+            </div>
+            <div className="bg-green-50 rounded-xl p-4 border border-green-200">
+              <p className="text-xs text-green-600 font-medium">Work Days</p>
+              <p className="text-2xl font-bold text-green-900">{dailyTotals.length}</p>
+            </div>
+            <div className="bg-purple-50 rounded-xl p-4 border border-purple-200">
+              <p className="text-xs text-purple-600 font-medium">Work Types</p>
+              <p className="text-2xl font-bold text-purple-900">{workTypeTotals.length}</p>
+            </div>
+            <div className="bg-amber-50 rounded-xl p-4 border border-amber-200">
+              <p className="text-xs text-amber-600 font-medium">Avg/Day</p>
+              <p className="text-2xl font-bold text-amber-900">{dailyTotals.length > 0 ? (totalHours / dailyTotals.length).toFixed(1) : '0'}h</p>
+            </div>
+          </div>
+
+          {/* Work Type Chart */}
+          <div className="bg-white border border-gray-200 rounded-xl p-5">
+            <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <Clock className="w-4 h-4" /> Work Type Distribution
+            </h3>
+            <div className="space-y-3">
+              {workTypeTotals.map(([type, hours]) => {
+                const pct = (hours / totalHours) * 100;
+                const color = wtColors[type] || 'bg-gray-400';
+                return (
+                  <div key={type}>
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span className="text-gray-700 font-medium">{type}</span>
+                      <span className="text-gray-500">{hours.toFixed(1)}h ({pct.toFixed(1)}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                      <div className={`h-full rounded-full transition-all duration-700 ${color}`}
+                        style={{ width: `${(hours / maxWT) * 100}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Customer Chart */}
+          <div className="bg-white border border-gray-200 rounded-xl p-5">
+            <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <FileText className="w-4 h-4" /> Customer Distribution
+            </h3>
+            <div className="space-y-3">
+              {customerTotals.map(([cust, hours]) => {
+                const pct = (hours / totalHours) * 100;
+                return (
+                  <div key={cust}>
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span className="text-gray-700 font-medium">{cust}</span>
+                      <span className="text-gray-500">{hours.toFixed(1)}h ({pct.toFixed(1)}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                      <div className="h-full rounded-full bg-teal-500 transition-all duration-700"
+                        style={{ width: `${(hours / maxCust) * 100}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Requester Chart */}
+          <div className="bg-white border border-gray-200 rounded-xl p-5">
+            <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <FileText className="w-4 h-4" /> Requester Distribution
+            </h3>
+            <div className="space-y-3">
+              {requesterTotals.map(([name, hours]) => {
+                const pct = (hours / totalHours) * 100;
+                return (
+                  <div key={name}>
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span className="text-gray-700 font-medium">{name}</span>
+                      <span className="text-gray-500">{hours.toFixed(1)}h ({pct.toFixed(1)}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                      <div className="h-full rounded-full bg-rose-500 transition-all duration-700"
+                        style={{ width: `${(hours / maxReq) * 100}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Daily Details */}
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <div className="bg-gray-50 px-5 py-3 border-b border-gray-200 flex items-center justify-between gap-4">
+              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 flex-shrink-0">
+                <Calendar className="w-4 h-4" /> Daily Details
+              </h3>
+              <div className="relative flex-1 max-w-xs">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input type="text" className="w-full pl-8 pr-8 py-2 text-xs border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent" placeholder="Search date... (e.g. 2026-07-11)" value={searchDate} onChange={e => {
+                  let val = e.target.value.replace(/-/g, '').replace(/\D/g, '').slice(0, 8);
+                  if (val.length > 6) val = val.slice(0, 4) + '-' + val.slice(4, 6) + '-' + val.slice(6);
+                  else if (val.length > 4) val = val.slice(0, 4) + '-' + val.slice(4);
+                  setSearchDate(val);
+                }} />
+                {searchDate && <button onClick={() => setSearchDate('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X className="w-3 h-3" /></button>}
+              </div>
+            </div>
+            <div className="max-h-[500px] overflow-y-auto">
+              {(() => {
+                const filtered = searchDate
+                  ? dailyTotals.filter(([d]) => d.includes(searchDate))
+                  : dailyTotals;
+                if (filtered.length === 0) {
+                  return <div className="text-center py-8 text-gray-400"><Calendar className="w-8 h-8 mx-auto mb-2 opacity-50" /><p className="text-sm">No matching dates</p></div>;
+                }
+                return (
+                  <div className="divide-y divide-gray-100">
+                    {filtered.map(([date, { hours, logs: dayLogs }]) => (
+                      <div key={date}>
+                        <button
+                          onClick={() => setExpandedDate(expandedDate === date ? null : date)}
+                          className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors text-left"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-medium text-gray-700">{date}</span>
+                            <span className="text-xs text-gray-400">{dayLogs.length} entries</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-bold text-gray-900">{hours.toFixed(1)}h</span>
+                            <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${expandedDate === date ? 'rotate-90' : ''}`} />
+                          </div>
+                        </button>
+                        {expandedDate === date && (
+                          <div className="overflow-x-auto border-t border-gray-100">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="bg-gray-50 border-b border-gray-200">
+                                  <th className="px-3 py-2 font-semibold text-gray-500 text-left">Task / Project</th>
+                                  <th className="px-3 py-2 font-semibold text-gray-500 text-left">User</th>
+                                  <th className="px-3 py-2 font-semibold text-gray-500 text-left">Group</th>
+                                  <th className="px-3 py-2 font-semibold text-gray-500 text-left">Sales</th>
+                                  <th className="px-3 py-2 font-semibold text-gray-500 text-left">Category</th>
+                                  <th className="px-3 py-2 font-semibold text-gray-500 text-left">Customer</th>
+                                  <th className="px-3 py-2 font-semibold text-gray-500 text-left">APTX</th>
+                                  <th className="px-3 py-2 font-semibold text-gray-500 text-left">Code</th>
+                                  <th className="px-3 py-2 font-semibold text-gray-500 text-right">Hours</th>
+                                  <th className="px-3 py-2 font-semibold text-gray-500 text-left">Comment</th>
+                                  <th className="px-3 py-2 font-semibold text-gray-500 text-left">Mode</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {dayLogs.map((log, i) => {
+                                  const tc = workTypeColors[log.sales || log.category] || workTypeColors['Others'];
+                                  return (
+                                    <tr key={i} className={`${tc.bg} hover:bg-blue-50/30 border-l-4 ${tc.border}`}>
+                                      <td className="px-3 py-2 font-medium text-gray-800 max-w-[160px] truncate">{log.task_name || log.project_title}</td>
+                                      <td className="px-3 py-2 text-gray-600">{log.user_name}</td>
+                                      <td className="px-3 py-2 text-gray-600">{log.group_name}</td>
+                                      <td className={`px-3 py-2 font-semibold ${tc.text}`}>{log.sales}</td>
+                                      <td className={`px-3 py-2 ${tc.text}`}>{log.category}</td>
+                                      <td className="px-3 py-2 text-gray-600 max-w-[100px] truncate" title={log.customer}>{log.customer}</td>
+                                      <td className="px-3 py-2 text-gray-600">{log.aptx}</td>
+                                      <td className="px-3 py-2 text-gray-600">{log.code}</td>
+                                      <td className="px-3 py-2 font-bold text-gray-900 text-right">{log.hours.toFixed(1)}</td>
+                                      <td className="px-3 py-2 text-gray-500 max-w-[140px] truncate" title={log.comment}>{log.comment}</td>
+                                      <td className="px-3 py-2 text-gray-500">{log.mode}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

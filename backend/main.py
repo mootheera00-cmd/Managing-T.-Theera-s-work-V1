@@ -16,6 +16,8 @@ from routes.time_logs import router as time_logs_router
 from routes.process import router as process_router
 from routes.outputs import router as outputs_router
 from routes.dashboard import router as dashboard_router
+from routes.auth import router as auth_router
+from routes.calendar import router as calendar_router
 
 
 # When running as a PyInstaller bundle, files are extracted to sys._MEIPASS.
@@ -29,7 +31,7 @@ BASE_DIR = get_base_dir()
 frontend_dist = os.path.join(BASE_DIR, "..", "frontend", "dist")
 frontend_dist = os.path.normpath(frontend_dist)
 
-app = FastAPI(title="Managing T. Theera's Work", version="2.0.0")
+app = FastAPI(title="Our group's work", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,6 +49,8 @@ app.include_router(time_logs_router)
 app.include_router(process_router)
 app.include_router(outputs_router)
 app.include_router(dashboard_router)
+app.include_router(auth_router)
+app.include_router(calendar_router)
 
 
 @app.on_event("startup")

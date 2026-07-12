@@ -1,26 +1,34 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import HomeDashboard from './pages/HomeDashboard';
 import DashboardPage from './pages/DashboardPage';
-import ProjectDetailPage from './pages/ProjectDetailPage';
 import HistoryPage from './pages/HistoryPage';
-import ProcessPage from './pages/ProcessPage';
+import ProcessOutputPage from './pages/ProcessOutputPage';
 import TimeSheetPage from './pages/TimeSheetPage';
+import LoginPage from './pages/LoginPage';
+import AdminPage from './pages/AdminPage';
+import ProjectGroupPage from './pages/ProjectGroupPage';
+import CalendarPage from './pages/CalendarPage';
 
 
 export default function App() {
   return (
     <BrowserRouter>
-      <Layout>
+      <AuthProvider>
         <Routes>
-          <Route path="/" element={<HomeDashboard />} />
-          <Route path="/projects" element={<DashboardPage />} />
-          <Route path="/project/:id" element={<ProjectDetailPage />} />
-          <Route path="/project/:id/process" element={<ProcessPage />} />
-          <Route path="/history" element={<HistoryPage />} />
-          <Route path="/timesheet" element={<TimeSheetPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/admin" element={<Layout><AdminPage /></Layout>} />
+          <Route path="/" element={<Layout><HomeDashboard /></Layout>} />
+          <Route path="/projects" element={<Layout><DashboardPage /></Layout>} />
+          <Route path="/project/:id" element={<Layout><ProcessOutputPage /></Layout>} />
+          <Route path="/project/:id/process" element={<Layout><ProcessOutputPage /></Layout>} />
+          <Route path="/history" element={<Layout><HistoryPage /></Layout>} />
+          <Route path="/timesheet" element={<Layout><TimeSheetPage /></Layout>} />
+          <Route path="/group" element={<Layout><ProjectGroupPage /></Layout>} />
+          <Route path="/calendar" element={<Layout><CalendarPage /></Layout>} />
         </Routes>
-      </Layout>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

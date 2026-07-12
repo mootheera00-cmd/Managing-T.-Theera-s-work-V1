@@ -8,6 +8,7 @@ import type { Project, ProjectSummary } from '../types';
 import { STAGE_LABELS, WORK_TYPES } from '../types';
 import ProjectCard from '../components/ProjectCard';
 import ProjectForm from '../components/ProjectForm';
+import { useAuth } from '../contexts/AuthContext';
 
 const KANBAN_STAGES = ['work_request', 'process', 'outputs'] as const;
 
@@ -58,6 +59,7 @@ function avgProgress(list: Project[]): number {
 }
 
 export default function DashboardPage() {
+  const { user } = useAuth();
   const [year, setYear] = useState(new Date().getFullYear());
   const [search, setSearch] = useState('');
   const [workType, setWorkType] = useState('');
@@ -71,16 +73,17 @@ export default function DashboardPage() {
     try {
       const params: Record<string, unknown> = { year };
       if (search.trim()) params.search = search.trim();
+      if (user?.username) params.owner = user.username;
       const data = await getProjects(params as any);
       setProjects(data);
-      const sum = await getSummary({ year });
+      const sum = await getSummary({ year, owner: user?.username });
       setSummary(sum);
     } catch (e) {
       console.error('Failed to fetch projects', e);
     } finally {
       setLoading(false);
     }
-  }, [year, search]);
+  }, [year, search, user]);
 
   useEffect(() => {
     fetchData();
@@ -110,8 +113,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Project Dashboard</h1>
-        </div>
+          <h1 className="text-xl font-bold text-gray-900">Project Dashboard</h1>          <p className="text-xs text-gray-500">My projects — personal workspace</p>        </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowCreate(true)}

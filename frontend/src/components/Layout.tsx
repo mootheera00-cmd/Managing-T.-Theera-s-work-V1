@@ -1,31 +1,33 @@
 import { ReactNode, useState, useEffect } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, History, Clock, Cog, Kanban,
-  ChevronLeft, Menu, X, User, Edit3, Check
+  LayoutDashboard, History, Clock, Cog, Kanban, Users,
+  ChevronLeft, Menu, X, User, Edit3, Check, LogOut, Shield,
+  CalendarDays
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Props {
   children: ReactNode;
 }
 
-const NAV_ITEMS = [
+const PERSONAL_NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/projects', label: 'Project Dashboard', icon: Kanban, end: false },
+  { to: '/projects', label: 'My Projects', icon: Kanban, end: false },
   { to: '/history', label: 'History', icon: History, end: false },
   { to: '/timesheet', label: 'Time Sheet', icon: Clock, end: false },
 ];
 
+const TEAM_NAV = [
+  { to: '/group', label: 'Project Group', icon: Users, end: false },
+  { to: '/calendar', label: 'Calendar', icon: CalendarDays, end: false },
+];
+
 export default function Layout({ children }: Props) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 1024);
-  const [userName, setUserName] = useState(() => localStorage.getItem('app_user_name') || 'T.Theera');
-  const [editingUser, setEditingUser] = useState(false);
-  const [editName, setEditName] = useState('');
-
-  useEffect(() => {
-    localStorage.setItem('app_user_name', userName);
-  }, [userName]);
 
   // Auto-close sidebar on mobile
   useEffect(() => {
@@ -67,7 +69,7 @@ export default function Layout({ children }: Props) {
             </div>
             <div className="min-w-0">
               <h1 className="text-sm font-bold tracking-tight leading-tight text-white truncate">
-                T. Theera's Work
+                Our group's work
               </h1>
               <p className="text-[9px] text-gray-500 leading-tight tracking-widest uppercase truncate">
                 Project Management
@@ -84,7 +86,11 @@ export default function Layout({ children }: Props) {
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {NAV_ITEMS.map((item) => (
+          {/* Personal section */}
+          <div className="px-3 pb-1">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-600">Personal</span>
+          </div>
+          {PERSONAL_NAV.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -96,41 +102,71 @@ export default function Layout({ children }: Props) {
               <span>{item.label}</span>
             </NavLink>
           ))}
+
+          {/* Team section divider */}
+          <div className="relative my-4 px-3">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-700/50" />
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-gray-900 px-2 text-[9px] font-semibold uppercase tracking-widest text-indigo-400">
+                Team Shared
+              </span>
+            </div>
+          </div>
+
+          {/* Team section */}
+          {TEAM_NAV.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-xl transition-all ${
+                  isActive
+                    ? 'bg-indigo-600/20 text-indigo-300 shadow-sm ring-1 ring-indigo-500/30'
+                    : 'text-indigo-400/70 hover:bg-indigo-900/20 hover:text-indigo-300'
+                }`
+              }
+              title={item.label}
+            >
+              <item.icon className="w-5 h-5 flex-shrink-0" />
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
         </nav>
 
         {/* User Profile */}
           <div className="px-4 py-3 border-t border-gray-800">
-            {editingUser ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  className="flex-1 bg-gray-800 text-white text-xs rounded-lg px-2 py-1.5 border border-gray-700 focus:outline-none focus:border-blue-500"
-                  value={editName}
-                  onChange={e => setEditName(e.target.value)}
-                  autoFocus
-                  onKeyDown={e => { if (e.key === 'Enter') { setUserName(editName || 'T.Theera'); setEditingUser(false); } }}
-                />
-                <button
-                  onClick={() => { setUserName(editName || 'T.Theera'); setEditingUser(false); }}
-                  className="p-1.5 text-green-400 hover:bg-gray-800 rounded-lg"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                </button>
+            {user ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                    <User className="w-3.5 h-3.5 text-blue-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-300 truncate">{user.display_name || user.username}</p>
+                    <p className="text-[9px] text-gray-500">{user.role === 'admin' ? 'Administrator' : 'User'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  {user.role === 'admin' && (
+                    <button onClick={() => navigate('/admin')}
+                      className="flex-1 flex items-center justify-center gap-1 text-[10px] text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg px-2 py-1.5 transition-colors">
+                      <Shield className="w-3 h-3" /> Admin
+                    </button>
+                  )}
+                  <button onClick={() => logout().then(() => navigate('/login'))}
+                    className="flex-1 flex items-center justify-center gap-1 text-[10px] text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700 rounded-lg px-2 py-1.5 transition-colors">
+                    <LogOut className="w-3 h-3" /> Logout
+                  </button>
+                </div>
               </div>
             ) : (
-              <div
-                onClick={() => { setEditName(userName); setEditingUser(true); }}
-                className="flex items-center gap-2 cursor-pointer group"
-              >
-                <div className="w-7 h-7 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-                  <User className="w-3.5 h-3.5 text-blue-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-300 truncate">{userName}</p>
-                  <p className="text-[9px] text-gray-600">Click to edit</p>
-                </div>
-                <Edit3 className="w-3 h-3 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
+              <button onClick={() => navigate('/login')}
+                className="w-full flex items-center justify-center gap-2 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg px-3 py-2 transition-colors">
+                <LogOut className="w-3.5 h-3.5" /> Sign In
+              </button>
             )}
           </div>
 
@@ -162,10 +198,14 @@ export default function Layout({ children }: Props) {
                 const path = location.pathname;
                 if (path === '/') return 'Dashboard';
                 if (path.startsWith('/projects')) return 'Project Dashboard';
+                if (path.startsWith('/group')) return 'Project Group';
                 if (path.startsWith('/history')) return 'History & Summary';
                 if (path.startsWith('/timesheet')) return 'Time Sheet';
-                if (path.startsWith('/project')) return 'Project Detail';
-                return 'T. Theera\'s Work';
+                if (path.startsWith('/admin')) return 'User Management';
+                if (path.startsWith('/login')) return 'Sign In';
+                if (path.startsWith('/calendar')) return 'Team Calendar';
+                if (path.startsWith('/project')) return 'Project';
+                return 'Our group\'s work';
               })()}
             </h2>
           </div>

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from database import get_db
 from models import (
     ProjectCreate, ProjectUpdate,
@@ -6,6 +6,7 @@ from models import (
 )
 from typing import Optional
 import os
+from routes.auth import get_current_user
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -17,7 +18,12 @@ def dict_from_row(row):
 
 
 def get_full_project(project_id: int, db):
-    project = dict_from_row(db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone())
+    project = dict_from_row(db.execute("""
+        SELECT p.*, u.display_name as owner_display_name
+        FROM projects p
+        LEFT JOIN users u ON p.owner_username = u.username
+        WHERE p.id=?
+    """, (project_id,)).fetchone())
     if not project:
         return None
     project["work_request"] = dict_from_row(
@@ -124,13 +130,17 @@ def list_projects(
     work_type: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    owner: Optional[str] = None,
+    authorization: str = Header(''),
 ):
     db = get_db()
     query = """SELECT p.*, wr.requester as wr_requester, wr.customer_name as wr_customer, 
                wr.work_type as wr_work_type, wr.bearing_no as wr_bearing_no, 
-               wr.due_date as wr_due_date
+               wr.due_date as wr_due_date,
+               u.display_name as owner_display_name
                FROM projects p 
                LEFT JOIN work_requests wr ON p.id = wr.project_id 
+               LEFT JOIN users u ON p.owner_username = u.username
                WHERE 1=1"""
     params = []
 
@@ -156,6 +166,9 @@ def list_projects(
     if date_to:
         query += " AND p.created_at <= ?"
         params.append(date_to + " 23:59:59")
+    if owner:
+        query += " AND p.owner_username = ?"
+        params.append(owner)
 
     query += " ORDER BY p.updated_at DESC"
     rows = db.execute(query, params).fetchall()
@@ -192,13 +205,16 @@ def list_projects(
 
 
 @router.get("/summary")
-def get_summary(year: Optional[int] = None):
+def get_summary(year: Optional[int] = None, owner: Optional[str] = None):
     db = get_db()
     base_where = " WHERE 1=1"
     params = []
     if year:
         base_where += " AND p.year = ?"
         params.append(year)
+    if owner:
+        base_where += " AND p.owner_username = ?"
+        params.append(owner)
 
     base_from = "FROM projects p LEFT JOIN work_requests wr ON p.id = wr.project_id"
 
@@ -231,12 +247,47 @@ def get_summary(year: Optional[int] = None):
     }
 
 
+@router.get("/group")
+def list_group_projects(year: Optional[int] = None, authorization: str = Header('')):
+    """Return ALL projects for the group view (read-only for non-owners)."""
+    db = get_db()
+    query = """SELECT p.* FROM projects p WHERE 1=1"""
+    params = []
+    if year:
+        query += " AND p.year = ?"
+        params.append(year)
+    query += " ORDER BY p.work_type, p.updated_at DESC"
+    rows = db.execute(query, params).fetchall()
+    result = []
+    for r in rows:
+        p = dict_from_row(r)
+        p["process"] = dict_from_row(
+            db.execute("SELECT * FROM process_steps WHERE project_id=?", (p["id"],)).fetchone()
+        )
+        p["gantt_tasks"] = [
+            dict_from_row(r) for r in
+            db.execute("SELECT * FROM gantt_tasks WHERE project_id=? ORDER BY task_order ASC", (p["id"],)).fetchall()
+        ]
+        p["outputs"] = dict_from_row(
+            db.execute("SELECT * FROM outputs WHERE project_id=?", (p["id"],)).fetchone()
+        )
+        result.append(p)
+    db.close()
+    return result
+
+
 @router.post("")
-def create_project(data: ProjectCreate):
+def create_project(data: ProjectCreate, authorization: str = Header('')):
+    owner = ''
+    if authorization:
+        try:
+            u = get_current_user(authorization)
+            owner = u.get('username', '')
+        except: pass
     db = get_db()
     cursor = db.execute(
-        "INSERT INTO projects (year, title, work_type, requester, customer_name, bearing_no, received_date, due_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (data.year, data.title, data.work_type, data.requester, data.customer_name, data.bearing_no, data.received_date, data.due_date, data.notes)
+        "INSERT INTO projects (year, title, work_type, requester, customer_name, bearing_no, received_date, due_date, notes, owner_username) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (data.year, data.title, data.work_type, data.requester, data.customer_name, data.bearing_no, data.received_date, data.due_date, data.notes, owner)
     )
     project_id = cursor.lastrowid
     db.execute(
@@ -262,12 +313,20 @@ def get_project(project_id: int):
 
 
 @router.put("/{project_id}")
-def update_project(project_id: int, data: ProjectUpdate):
+def update_project(project_id: int, data: ProjectUpdate, authorization: str = Header('')):
     db = get_db()
     project = dict_from_row(db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone())
     if not project:
         db.close()
         raise HTTPException(status_code=404, detail="Project not found")
+    # Owner check
+    if authorization:
+        try:
+            u = get_current_user(authorization)
+            if project.get('owner_username') and project['owner_username'] != u.get('username'):
+                if u.get('role') != 'admin':
+                    db.close(); raise HTTPException(status_code=403, detail="Not your project")
+        except: pass
     updates = {k: v for k, v in data.model_dump().items() if v is not None}
     if updates:
         set_clause = ", ".join(f"{k}=?" for k in updates.keys())
@@ -281,12 +340,20 @@ def update_project(project_id: int, data: ProjectUpdate):
 
 
 @router.delete("/{project_id}")
-def delete_project(project_id: int):
+def delete_project(project_id: int, authorization: str = Header('')):
     db = get_db()
     project = db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
     if not project:
         db.close()
         raise HTTPException(status_code=404, detail="Project not found")
+    # Owner check
+    if authorization:
+        try:
+            u = get_current_user(authorization)
+            if project['owner_username'] and project['owner_username'] != u.get('username'):
+                if u.get('role') != 'admin':
+                    db.close(); raise HTTPException(status_code=403, detail="Not your project")
+        except: pass
     
     # Delete associated files
     files = db.execute("SELECT file_path FROM file_attachments WHERE project_id=?", (project_id,)).fetchall()
@@ -320,13 +387,21 @@ def delete_project(project_id: int):
 
 
 @router.post("/{project_id}/start")
-def start_process(project_id: int):
+def start_process(project_id: int, authorization: str = Header('')):
     """Move project from Work Request to Process stage"""
     db = get_db()
     project = dict_from_row(db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone())
     if not project:
         db.close()
         raise HTTPException(status_code=404, detail="Project not found")
+    # Owner check
+    if authorization:
+        try:
+            u = get_current_user(authorization)
+            if project.get('owner_username') and project['owner_username'] != u.get('username'):
+                if u.get('role') != 'admin':
+                    db.close(); raise HTTPException(status_code=403, detail="Not your project")
+        except: pass
     
     if project["current_stage"] != "work_request":
         db.close()
