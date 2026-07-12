@@ -107,6 +107,8 @@ export interface Project {
   completed_at: string;
   created_at: string;
   updated_at: string;
+  owner_username?: string;
+  owner_display_name?: string;
   work_request?: WorkRequest;
   process?: ProcessSteps;
   outputs?: Outputs;
@@ -147,6 +149,7 @@ export interface TimeLogEntry {
   hours: number;
   comment: string;
   mode: string;
+  report_number_id?: number;
   created_at: string;
   updated_at: string;
   project_title?: string;
@@ -220,3 +223,27 @@ export const OUTPUT_STEP_LABELS: Record<number, string> = {
   11: 'Step 11: Final check',
   12: 'Step 12: Report revision (optional)',
 };
+
+export interface CalendarNote {
+  id: number;
+  note_date: string;
+  note_type: 'leave' | 'meeting' | 'outing' | 'general' | 'other';
+  content: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CalendarHoliday {
+  id: number;
+  holiday_date: string;
+  description: string;
+  created_at: string;
+}
+
+export interface CalendarWorkingDay {
+  id: number;
+  work_date: string;
+  description: string;
+  created_at: string;
+}

@@ -139,6 +139,7 @@ class TimeLogCreate(BaseModel):
     hours: float = 0
     comment: str = ''
     mode: str = 'log'
+    report_number_id: int = 0
 
 class TimeLogUpdate(BaseModel):
     task_id: Optional[int] = None

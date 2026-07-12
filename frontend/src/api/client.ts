@@ -1,8 +1,18 @@
 import axios from 'axios';
-import type { Project, ProjectSummary, TimeLogEntry, ProcessResponse, OutputsResponse, GanttTask, ReportNumber, ProcessSteps, Outputs } from '../types';
+import type { Project, ProjectSummary, TimeLogEntry, ProcessResponse, OutputsResponse, GanttTask, ReportNumber, ProcessSteps, Outputs, CalendarNote, CalendarHoliday, CalendarWorkingDay } from '../types';
+import { getToken } from './auth';
 
 const api = axios.create({
   baseURL: '/api',
+});
+
+// Auto-attach auth token to all requests
+api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 // --- Projects ---
@@ -14,6 +24,7 @@ export async function getProjects(params?: {
   work_type?: string;
   date_from?: string;
   date_to?: string;
+  owner?: string;
 }): Promise<Project[]> {
   const { data } = await api.get('/projects', { params });
   return data;
@@ -216,6 +227,7 @@ export async function deleteReportNumber(projectId: number, rnId: number): Promi
 // --- Summary ---
 export async function getSummary(params?: {
   year?: number;
+  owner?: string;
 }): Promise<ProjectSummary> {
   const { data } = await api.get('/projects/summary', { params });
   return data;
@@ -264,6 +276,7 @@ export async function getTimeLogs(params?: {
   date_from?: string;
   date_to?: string;
   project_id?: number;
+  user_name?: string;
 }): Promise<TimeLogEntry[]> {
   const { data } = await api.get('/time-logs', { params });
   return data;
@@ -284,6 +297,7 @@ export async function createTimeLog(payload: {
   hours: number;
   comment?: string;
   mode?: string;
+  report_number_id?: number;
 }): Promise<{ id: number; day_logs: TimeLogEntry[]; date_total: number; exceeds_normal: boolean; overtime_hours: number }> {
   const { data } = await api.post('/time-logs', payload);
   return data;
@@ -346,7 +360,7 @@ export async function deleteTimeLog(id: number): Promise<{ success: boolean; day
   return data;
 }
 
-export async function checkDailyHours(date: string): Promise<{
+export async function checkDailyHours(date: string, user_name?: string): Promise<{
   date: string;
   total_hours: number;
   normal_limit: number;
@@ -356,11 +370,87 @@ export async function checkDailyHours(date: string): Promise<{
   remaining_normal: number;
   remaining_with_ot: number;
 }> {
-  const { data } = await api.get(`/time-logs/check-hours/${date}`);
+  const { data } = await api.get(`/time-logs/check-hours/${date}`, { params: user_name ? { user_name } : {} });
   return data;
 }
 
-export async function getActiveProjectsForTimesheet(): Promise<Project[]> {
-  const { data } = await api.get('/time-logs/active-projects');
+export async function getActiveProjectsForTimesheet(user_name?: string): Promise<Project[]> {
+  const { data } = await api.get('/time-logs/active-projects', { params: user_name ? { user_name } : {} });
+  return data;
+}
+
+// --- Calendar / Team Notes ---
+export async function getCalendarNotes(month: string): Promise<CalendarNote[]> {
+  const { data } = await api.get('/calendar/notes', { params: { month } });
+  return data;
+}
+
+export async function getCalendarNotesByDate(note_date: string): Promise<CalendarNote[]> {
+  const { data } = await api.get(`/calendar/notes/${note_date}`);
+  return data;
+}
+
+export async function createCalendarNote(payload: {
+  note_date: string;
+  note_type?: string;
+  content?: string;
+  created_by?: string;
+}): Promise<CalendarNote> {
+  const { data } = await api.post('/calendar/notes', payload);
+  return data;
+}
+
+export async function updateCalendarNote(id: number, payload: {
+  note_type?: string;
+  content?: string;
+}): Promise<CalendarNote> {
+  const { data } = await api.put(`/calendar/notes/${id}`, payload);
+  return data;
+}
+
+export async function deleteCalendarNote(id: number): Promise<void> {
+  const { data } = await api.delete(`/calendar/notes/${id}`);
+  return data;
+}
+
+// --- Calendar / Holidays ---
+export async function getCalendarHolidays(year: number): Promise<CalendarHoliday[]> {
+  const { data } = await api.get('/calendar/holidays', { params: { year } });
+  return data;
+}
+
+export async function addCalendarHoliday(holiday_date: string, description?: string): Promise<CalendarHoliday> {
+  const { data } = await api.post('/calendar/holidays', { holiday_date, description: description || '' });
+  return data;
+}
+
+export async function removeCalendarHoliday(holiday_date: string): Promise<void> {
+  const { data } = await api.delete(`/calendar/holidays/${holiday_date}`);
+  return data;
+}
+
+export async function checkCalendarHoliday(holiday_date: string): Promise<CalendarHoliday | null> {
+  const { data } = await api.get(`/calendar/holidays/${holiday_date}`);
+  return data;
+}
+
+// --- Calendar / Working Days ---
+export async function getCalendarWorkingDays(year: number): Promise<CalendarWorkingDay[]> {
+  const { data } = await api.get('/calendar/working-days', { params: { year } });
+  return data;
+}
+
+export async function addCalendarWorkingDay(work_date: string, description?: string): Promise<CalendarWorkingDay> {
+  const { data } = await api.post('/calendar/working-days', { work_date, description: description || '' });
+  return data;
+}
+
+export async function removeCalendarWorkingDay(work_date: string): Promise<void> {
+  const { data } = await api.delete(`/calendar/working-days/${work_date}`);
+  return data;
+}
+
+export async function checkCalendarWorkingDay(work_date: string): Promise<CalendarWorkingDay | null> {
+  const { data } = await api.get(`/calendar/working-days/${work_date}`);
   return data;
 }

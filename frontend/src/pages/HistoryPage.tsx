@@ -8,6 +8,7 @@ import { getProjects, getSummary } from '../api/client';
 import type { Project, ProjectSummary } from '../types';
 import { WORK_TYPES } from '../types';
 import ProjectCard from '../components/ProjectCard';
+import { useAuth } from '../contexts/AuthContext';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -15,6 +16,7 @@ const MONTHS = [
 ];
 
 export default function HistoryPage() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -26,6 +28,7 @@ export default function HistoryPage() {
   const fetchData = useCallback(async () => {
     try {
       const params: any = { year };
+      if (user?.username) params.owner = user.username;
       if (month !== '') {
         const from = `${year}-${String(month).padStart(2, '0')}-01`;
         const lastDay = new Date(year, month as number, 0).getDate();
@@ -35,14 +38,14 @@ export default function HistoryPage() {
       }
       const [projs, sum] = await Promise.all([
         getProjects(params),
-        getSummary({ year })
+        getSummary({ year, owner: user?.username })
       ]);
       setProjects(projs);
       setSummary(sum);
     } catch (e) {
       console.error(e);
     }
-  }, [year, month]);
+  }, [year, month, user]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

@@ -1,6 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 from database import get_db
 from datetime import date, datetime
+from routes.auth import get_current_user
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -12,22 +13,43 @@ def dict_from_row(row):
 
 
 @router.get("")
-def get_dashboard():
+def get_dashboard(authorization: str = Header('')):
     db = get_db()
     today = date.today().isoformat()
     today_dt = date.today()
 
+    # Determine owner from auth
+    owner = ''
+    if authorization:
+        try:
+            u = get_current_user(authorization)
+            owner = u.get('username', '')
+        except:
+            pass
+
     # 1. Today's tasks: gantt tasks where planned_start <= today <= planned_end
     today_tasks = []
-    rows = db.execute("""
-        SELECT gt.*, p.title as project_title, p.work_type, p.customer_name,
-               p.due_date, p.id as project_id
-        FROM gantt_tasks gt
-        JOIN projects p ON gt.project_id = p.id
-        WHERE gt.planned_start <= ? AND gt.planned_end >= ?
-          AND p.status != 'completed'
-        ORDER BY gt.planned_start ASC
-    """, (today, today)).fetchall()
+    if owner:
+        rows = db.execute("""
+            SELECT gt.*, p.title as project_title, p.work_type, p.customer_name,
+                   p.due_date, p.id as project_id
+            FROM gantt_tasks gt
+            JOIN projects p ON gt.project_id = p.id
+            WHERE gt.planned_start <= ? AND gt.planned_end >= ?
+              AND p.status != 'completed'
+              AND p.owner_username = ?
+            ORDER BY gt.planned_start ASC
+        """, (today, today, owner)).fetchall()
+    else:
+        rows = db.execute("""
+            SELECT gt.*, p.title as project_title, p.work_type, p.customer_name,
+                   p.due_date, p.id as project_id
+            FROM gantt_tasks gt
+            JOIN projects p ON gt.project_id = p.id
+            WHERE gt.planned_start <= ? AND gt.planned_end >= ?
+              AND p.status != 'completed'
+            ORDER BY gt.planned_start ASC
+        """, (today, today)).fetchall()
 
     for r in rows:
         task = dict_from_row(r)
@@ -42,14 +64,25 @@ def get_dashboard():
 
     # 2. Active projects with upcoming deadlines (not completed, not paused)
     active_projects = []
-    rows = db.execute("""
-        SELECT p.*, wr.due_date as wr_due_date, wr.work_type as wr_work_type,
-               wr.customer_name as wr_customer, wr.bearing_no as wr_bearing
-        FROM projects p
-        LEFT JOIN work_requests wr ON p.id = wr.project_id
-        WHERE p.status = 'active' AND p.current_stage != 'completed'
-        ORDER BY COALESCE(p.due_date, wr.due_date, '9999-12-31') ASC
-    """).fetchall()
+    if owner:
+        rows = db.execute("""
+            SELECT p.*, wr.due_date as wr_due_date, wr.work_type as wr_work_type,
+                   wr.customer_name as wr_customer, wr.bearing_no as wr_bearing
+            FROM projects p
+            LEFT JOIN work_requests wr ON p.id = wr.project_id
+            WHERE p.status = 'active' AND p.current_stage != 'completed'
+              AND p.owner_username = ?
+            ORDER BY COALESCE(p.due_date, wr.due_date, '9999-12-31') ASC
+        """, (owner,)).fetchall()
+    else:
+        rows = db.execute("""
+            SELECT p.*, wr.due_date as wr_due_date, wr.work_type as wr_work_type,
+                   wr.customer_name as wr_customer, wr.bearing_no as wr_bearing
+            FROM projects p
+            LEFT JOIN work_requests wr ON p.id = wr.project_id
+            WHERE p.status = 'active' AND p.current_stage != 'completed'
+            ORDER BY COALESCE(p.due_date, wr.due_date, '9999-12-31') ASC
+        """).fetchall()
 
     for r in rows:
         proj = dict_from_row(r)

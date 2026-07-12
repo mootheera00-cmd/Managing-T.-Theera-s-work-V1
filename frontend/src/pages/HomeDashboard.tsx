@@ -218,7 +218,7 @@ export default function HomeDashboard() {
                   return (
                     <div
                       key={proj.id}
-                      onClick={() => navigate(`/project/${proj.id}`)}
+                      onClick={() => navigate(`/project/${proj.id}/process`)}
                       className="px-5 py-3.5 hover:bg-gray-50 cursor-pointer transition-colors"
                     >
                       <div className="flex items-start justify-between gap-3">

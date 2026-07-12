@@ -44,7 +44,8 @@ def init_db():
         notes TEXT DEFAULT '',
         completed_at TEXT DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        owner_username TEXT DEFAULT ''
     );
 
     -- Work Request (waiting state before starting process)
@@ -180,6 +181,7 @@ def init_db():
         hours REAL DEFAULT 0,
         comment TEXT DEFAULT '',
         mode TEXT DEFAULT 'log',
+        report_number_id INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -205,7 +207,53 @@ def init_db():
         PRIMARY KEY (project_id, step, report_number),
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
+
+    -- Team calendar notes (shared by everyone in the group)
+    CREATE TABLE IF NOT EXISTS team_calendar_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        note_date TEXT NOT NULL,
+        note_type TEXT NOT NULL DEFAULT 'general'
+            CHECK(note_type IN ('leave','meeting','outing','general','other')),
+        content TEXT NOT NULL DEFAULT '',
+        created_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_calendar_notes_date ON team_calendar_notes(note_date);
+
+    -- Team calendar holidays (dates marked as company holidays)
+    CREATE TABLE IF NOT EXISTS team_calendar_holidays (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        holiday_date TEXT NOT NULL UNIQUE,
+        description TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Team calendar working days (e.g. Saturdays that are working days)
+    CREATE TABLE IF NOT EXISTS team_calendar_working_days (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        work_date TEXT NOT NULL UNIQUE,
+        description TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Users for authentication
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        display_name TEXT DEFAULT '',
+        role TEXT NOT NULL DEFAULT 'user'
+            CHECK(role IN ('user','admin')),
+        is_active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
     """)
+
+    # Seed default admin user if not exists
+    cursor.execute("INSERT OR IGNORE INTO users (username, password_hash, display_name, role) VALUES (?,?,?,?)",
+                   ("admin", "admin123", "Administrator", "admin"))
 
     conn.commit()
     conn.close()
@@ -237,6 +285,7 @@ def init_db():
         "ALTER TABLE time_logs ADD COLUMN comment TEXT DEFAULT ''",
         "ALTER TABLE time_logs ADD COLUMN mode TEXT DEFAULT 'log'",
         "ALTER TABLE time_logs ADD COLUMN task_name TEXT DEFAULT ''",
+        "ALTER TABLE time_logs ADD COLUMN report_number_id INTEGER DEFAULT 0",
         "ALTER TABLE outputs ADD COLUMN step1_complete INTEGER DEFAULT 0",
         "ALTER TABLE outputs ADD COLUMN step2_complete INTEGER DEFAULT 0",
         "ALTER TABLE outputs ADD COLUMN step3_complete INTEGER DEFAULT 0",
@@ -246,6 +295,7 @@ def init_db():
         "ALTER TABLE outputs ADD COLUMN step7_complete INTEGER DEFAULT 0",
         "ALTER TABLE outputs ADD COLUMN step7_data TEXT DEFAULT ''",
         "ALTER TABLE outputs ADD COLUMN report_no TEXT DEFAULT ''",
+        "ALTER TABLE projects ADD COLUMN owner_username TEXT DEFAULT ''",
         "ALTER TABLE process_steps ADD COLUMN step1_label TEXT DEFAULT 'Order Receiving'",
         "ALTER TABLE process_steps ADD COLUMN step1_data TEXT DEFAULT ''",
         "ALTER TABLE process_steps ADD COLUMN step1_complete INTEGER DEFAULT 0",

@@ -68,3 +68,168 @@
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
 }
+
+/* ── Professional Print Styles ── */
+@media print {
+  @page {
+    margin: 15mm 18mm;
+    size: A4 portrait;
+  }
+
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+  html, body {
+    background: white !important;
+    font-family: 'Manrope', 'Segoe UI', Arial, sans-serif !important;
+    font-size: 10.5pt !important;
+    line-height: 1.5 !important;
+    color: #1a1a1a !important;
+  }
+
+  /* Hide sidebar, nav, banner - use role selectors for reliability */
+  aside[role="complementary"],
+  nav[role="navigation"],
+  [class*="banner"] {
+    display: none !important;
+  }
+
+  /* Also hide by aria-label and common patterns */
+  [aria-label="Sidebar"],
+  [aria-label="Navigation"] {
+    display: none !important;
+  }
+
+  .no-print { display: none !important; }
+
+  /* Keep #root and main visible - reset their styling */
+  #root, main, [role="main"] {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    background: white !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* Print area - the summary page */
+  .print-area {
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .print-area > div {
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+    border-radius: 3px !important;
+    page-break-inside: avoid;
+    margin-bottom: 14pt !important;
+    padding: 14pt 16pt !important;
+    background: white !important;
+  }
+
+  /* Title */
+  .print-area h1 {
+    font-size: 20pt !important;
+    font-weight: 800 !important;
+    color: #111 !important;
+    margin-bottom: 16pt !important;
+    padding-bottom: 8pt !important;
+    border-bottom: 2px solid #333 !important;
+    font-family: 'Outfit', 'Segoe UI', Arial, sans-serif !important;
+  }
+
+  /* Section headers */
+  .print-area h3 {
+    font-size: 13pt !important;
+    font-weight: 700 !important;
+    color: #1a1a1a !important;
+    margin-bottom: 10pt !important;
+    padding-bottom: 6pt !important;
+    border-bottom: 1px solid #ccc !important;
+  }
+
+  /* Labels */
+  .print-area [class*="tracking-wider"] {
+    font-size: 7.5pt !important;
+    font-weight: 700 !important;
+    color: #666 !important;
+    letter-spacing: 0.5px !important;
+    text-transform: uppercase !important;
+  }
+
+  /* Values */
+  .print-area [class*="font-semibold"] {
+    font-size: 10pt !important;
+    color: #1a1a1a !important;
+  }
+
+  .print-area .text-sm { font-size: 10pt !important; }
+  .print-area .text-xs { font-size: 9pt !important; }
+  .print-area .text-\[10px\] { font-size: 8pt !important; }
+  .print-area .text-\[9px\] { font-size: 7.5pt !important; }
+  .print-area .text-\[8px\] { font-size: 7pt !important; }
+
+  /* Grid layout */
+  .print-area .grid { display: grid !important; gap: 8pt 12pt !important; }
+  .print-area .grid-cols-2 { grid-template-columns: 1fr 1fr !important; }
+  .print-area .grid-cols-3 { grid-template-columns: 1fr 1fr 1fr !important; }
+
+  /* Task list rows */
+  .print-area [class*="border-b"] {
+    border-bottom: 1px solid #eee !important;
+    padding: 5pt 0 !important;
+  }
+  .print-area [class*="border-t-2"] {
+    border-top: 2px solid #333 !important;
+    margin-top: 6pt !important;
+    padding-top: 6pt !important;
+  }
+
+  /* Status badges */
+  .print-area [class*="rounded-full"] {
+    border-radius: 10px !important;
+    padding: 1pt 7pt !important;
+  }
+
+  /* Server folder link - make it look like text not a button */
+  .print-area button {
+    border: none !important;
+    background: none !important;
+    padding: 0 !important;
+    color: #2563eb !important;
+    font-size: 10pt !important;
+    text-decoration: underline !important;
+    cursor: default !important;
+  }
+
+  /* Revised badge */
+  .print-area [class*="bg-amber-50"] {
+    background: #fef3c7 !important;
+    color: #92400e !important;
+    padding: 1pt 7pt !important;
+    border-radius: 10px !important;
+    font-size: 8pt !important;
+  }
+
+  /* Project title line in header */
+  .print-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    margin-bottom: 16pt !important;
+  }
+  .print-header .title {
+    font-size: 20pt !important;
+    font-weight: 800 !important;
+  }
+  .print-header .date {
+    font-size: 9pt !important;
+    color: #888 !important;
+  }
+}

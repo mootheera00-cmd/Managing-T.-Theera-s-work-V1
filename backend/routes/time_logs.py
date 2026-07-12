@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from database import get_db
 from models import TimeLogCreate, TimeLogUpdate
 from typing import Optional
+from routes.auth import get_current_user
 
 router = APIRouter(prefix="/api/time-logs", tags=["time_logs"])
 
@@ -18,6 +19,7 @@ def list_time_logs(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     project_id: Optional[int] = None,
+    user_name: Optional[str] = None,
 ):
     db = get_db()
     query = "SELECT tl.*, p.title as project_title, p.work_type FROM time_logs tl LEFT JOIN projects p ON tl.project_id = p.id WHERE 1=1"
@@ -35,6 +37,9 @@ def list_time_logs(
     if project_id is not None:
         query += " AND tl.project_id = ?"
         params.append(project_id)
+    if user_name:
+        query += " AND tl.user_name = ?"
+        params.append(user_name)
 
     query += " ORDER BY tl.entry_date DESC, tl.id ASC"
     rows = db.execute(query, params).fetchall()
@@ -84,15 +89,15 @@ def create_time_log(data: TimeLogCreate):
     cursor = db.execute(
         """INSERT INTO time_logs 
            (project_id, task_id, task_name, entry_date, user_name, group_name, 
-            sales, category, customer, aptx, code, hours, comment, mode)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            sales, category, customer, aptx, code, hours, comment, mode, report_number_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             data.project_id, data.task_id, task_name, data.entry_date,
             data.user_name or "S.Nattiwat", data.group_name or "HUB",
             data.sales or work_type, data.category or work_type,
             data.customer or customer, data.aptx or "",
             data.code or "", data.hours, data.comment or "",
-            data.mode or "log"
+            data.mode or "log", data.report_number_id
         )
     )
     log_id = cursor.lastrowid
@@ -211,17 +216,42 @@ def delete_time_log(log_id: int):
 
 
 @router.get("/active-projects")
-def get_active_projects_for_timesheet():
-    """Get all active (non-completed) projects grouped by work type"""
+def get_active_projects_for_timesheet(
+    user_name: Optional[str] = None,
+    authorization: str = Header(''),
+):
+    """Get all active projects, optionally filtered by owner"""
     db = get_db()
-    rows = db.execute(
-        """SELECT p.*, wr.requester, wr.customer_name, wr.work_type, wr.bearing_no, wr.due_date
-           FROM projects p 
-           LEFT JOIN work_requests wr ON p.id = wr.project_id
-           WHERE p.current_stage IN ('work_request', 'process', 'outputs')
-           AND p.status = 'active'
-           ORDER BY wr.work_type ASC, p.title ASC"""
-    ).fetchall()
+    
+    # Determine owner from auth if user_name not provided
+    owner = user_name or ''
+    if not owner and authorization:
+        try:
+            u = get_current_user(authorization)
+            owner = u.get('username', '')
+        except:
+            pass
+    
+    if owner:
+        rows = db.execute(
+            """SELECT p.*, wr.requester, wr.customer_name, wr.work_type, wr.bearing_no, wr.due_date
+               FROM projects p 
+               LEFT JOIN work_requests wr ON p.id = wr.project_id
+               WHERE p.current_stage IN ('work_request', 'process', 'outputs')
+               AND p.status = 'active'
+               AND p.owner_username = ?
+               ORDER BY wr.work_type ASC, p.title ASC""",
+            (owner,)
+        ).fetchall()
+    else:
+        rows = db.execute(
+            """SELECT p.*, wr.requester, wr.customer_name, wr.work_type, wr.bearing_no, wr.due_date
+               FROM projects p 
+               LEFT JOIN work_requests wr ON p.id = wr.project_id
+               WHERE p.current_stage IN ('work_request', 'process', 'outputs')
+               AND p.status = 'active'
+               ORDER BY wr.work_type ASC, p.title ASC"""
+        ).fetchall()
     
     projects = []
     for r in rows:
@@ -231,6 +261,11 @@ def get_active_projects_for_timesheet():
             dict_from_row(t) for t in
             db.execute("SELECT * FROM gantt_tasks WHERE project_id=? ORDER BY task_order ASC", (p["id"],)).fetchall()
         ]
+        # Get report numbers
+        p["report_numbers"] = [
+            dict_from_row(rn) for rn in
+            db.execute("SELECT * FROM report_numbers WHERE project_id=? ORDER BY id ASC", (p["id"],)).fetchall()
+        ]
         projects.append(p)
     
     db.close()
@@ -238,12 +273,18 @@ def get_active_projects_for_timesheet():
 
 
 @router.get("/check-hours/{date}")
-def check_daily_hours(date: str):
+def check_daily_hours(date: str, user_name: Optional[str] = None):
     db = get_db()
-    total = db.execute(
-        "SELECT COALESCE(SUM(hours), 0) as total FROM time_logs WHERE entry_date=?",
-        (date,)
-    ).fetchone()["total"]
+    if user_name:
+        total = db.execute(
+            "SELECT COALESCE(SUM(hours), 0) as total FROM time_logs WHERE entry_date=? AND user_name=?",
+            (date, user_name)
+        ).fetchone()["total"]
+    else:
+        total = db.execute(
+            "SELECT COALESCE(SUM(hours), 0) as total FROM time_logs WHERE entry_date=?",
+            (date,)
+        ).fetchone()["total"]
     db.close()
     return {
         "date": date,
